@@ -10,13 +10,25 @@ from dataclasses import dataclass
 
 @dataclass
 class OperatorSpec:
-    """算子规格定义"""
+    """
+    算子规格定义
+    
+    遵循设计原则：
+    - stateful: 是否为有状态算子（需要fit/transform）
+    - alignment_policy: 参数对齐策略（Intersection/Ray-Extended/Engine-Specific）
+    - output_schema: 输出格式规范（dtype, format等）
+    - ray_impl_hint: Ray实现提示（preferred方法、batch_format等）
+    """
     name: str
     input_cols: List[str]
     output_cols: List[str]
     params: Dict[str, Any]
     description: str
     engine_impl_names: Optional[Dict[str, str]] = None  # 引擎特定的实现名称映射 {engine: impl_name}
+    stateful: bool = True  # 是否为有状态算子（需要fit/transform）
+    alignment_policy: str = "Ray-Extended"  # Intersection | Ray-Extended | Engine-Specific
+    output_schema: Optional[Dict[str, Any]] = None  # 输出格式规范
+    ray_impl_hint: Optional[Dict[str, Any]] = None  # Ray实现提示
 
     def __post_init__(self):
         """验证规格的合理性"""
@@ -43,7 +55,11 @@ class OperatorSpec:
             'output_cols': self.output_cols,
             'params': self.params,
             'description': self.description,
-            'engine_impl_names': self.engine_impl_names
+            'engine_impl_names': self.engine_impl_names,
+            'stateful': self.stateful,
+            'alignment_policy': self.alignment_policy,
+            'output_schema': self.output_schema,
+            'ray_impl_hint': self.ray_impl_hint
         }
 
 
@@ -95,6 +111,17 @@ register_operator_spec(OperatorSpec(
     engine_impl_names={
         "spark": "StandardScaler",  # Spark MLlib中的类名
         "ray": "standard_scaler"    # Ray中的实现标识（可自定义）
+    },
+    stateful=True,  # 有状态算子，需要全局fit
+    alignment_policy="Ray-Extended",  # Ray侧自研fit/transform以支持with_mean/with_std开关
+    output_schema={
+        "dtype": "float64",
+        "format": "scalar"  # scalar | dense_vector | sparse_vector
+    },
+    ray_impl_hint={
+        "preferred": "fit_transform",  # 优先使用自研fit/transform
+        "batch_format": "pandas",  # 固定batch_format
+        "no_inplace_mutation": True  # 禁止就地修改
     }
 ))
 
