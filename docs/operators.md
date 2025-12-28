@@ -231,6 +231,7 @@ Ray 侧每个算子按如下顺序选择实现方式：
   - `pattern`：分词模式（正则表达式）
 - **Spark 实现**：`Tokenizer`
 - **Ray 推荐实现**：
+  - 内置`tokenizer`算子
   - `map_batches` + 纯 Python/正则 tokenizer（推荐默认）
   - 如需 NLTK/spaCy：必须在工程说明中保证 worker 侧依赖可用（不建议作为默认）
 - **对齐策略**：**Intersection**（以正则/规则 tokenizer 固定行为）
@@ -250,6 +251,7 @@ Ray 侧每个算子按如下顺序选择实现方式：
   - `num_features`：特征维度（默认 `2^18`）
 - **Spark 实现**：`HashingTF`
 - **Ray 推荐实现**：
+  - 内置`HashingVectorizer`算子
   - `map_batches` + 自研 hashing（推荐，便于固定 hash 种子与碰撞行为）
   - 或 `map_batches + sklearn.HashingVectorizer`（但需锁定 tokenizer/输出格式）
 - **对齐策略**：**Ray-Extended**（推荐自研 hash 以更易对齐 Spark 的哈希细节）
