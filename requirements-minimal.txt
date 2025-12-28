@@ -1,0 +1,25 @@
+# Minimal dependencies for running the benchmark (choose ONE engine)
+
+# Data processing (always required)
+pandas>=1.5.0,<3.0.0
+numpy>=1.21.0,<2.0.0
+pyarrow>=8.0.0,<15.0.0
+
+# Machine Learning preprocessing (always required)
+scikit-learn>=1.0.0,<2.0.0
+
+# Choose ONE of the following engines:
+
+# For Spark MLlib engine
+# pyspark==3.5.7
+
+# For Ray engine
+# ray[default]>=2.0.0,<3.0.0
+
+# For both engines (recommended for comparison)
+pyspark==3.5.7
+ray[default]>=2.0.0,<3.0.0
+
+# Optional: CLI and basic utilities
+click>=8.0.0,<9.0.0
+rich>=12.0.0,<14.0.0
