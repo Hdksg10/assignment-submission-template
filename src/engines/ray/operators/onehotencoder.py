@@ -70,65 +70,31 @@ def run_onehotencoder(input_df: pd.DataFrame, spec: OperatorSpec) -> pd.DataFram
 
             # 创建OneHotEncoder并fit
             encoder = OneHotEncoder(
-                sparse=False,  # 使用稠密数组
                 drop='first' if drop_last else None,
-                handle_unknown='error' if handle_invalid == 'error' else 'ignore'
+                handle_unknown='error' if handle_invalid == 'error' else 'ignore',
+                sparse_output=False  # 现代sklearn版本使用sparse_output
             )
 
-            try:
-                encoded_data = encoder.fit_transform(col_data)
+            encoded_data = encoder.fit_transform(col_data)
 
-                # 为独热编码列创建列名
-                feature_names = []
-                categories = encoder.categories_[0]
-                for i, category in enumerate(categories):
-                    if drop_last and i == 0:
-                        continue  # 跳过第一个类别（drop='first'）
-                    feature_names.append(f"{output_col}_{category}")
+            # 为独热编码列创建列名
+            feature_names = []
+            categories = encoder.categories_[0]
+            for i, category in enumerate(categories):
+                if drop_last and i == 0:
+                    continue  # 跳过第一个类别（drop='first'）
+                feature_names.append(f"{output_col}_{category}")
 
-                # 创建独热编码DataFrame
-                encoded_df = pd.DataFrame(
-                    encoded_data,
-                    columns=feature_names,
-                    index=result_df.index,
-                    dtype=np.float64
-                )
+            # 创建独热编码DataFrame
+            encoded_df = pd.DataFrame(
+                encoded_data,
+                columns=feature_names,
+                index=result_df.index,
+                dtype=np.float64
+            )
 
-                # 将独热编码列添加到结果DataFrame
-                result_df = pd.concat([result_df, encoded_df], axis=1)
-
-            except ValueError as e:
-                if handle_invalid == "error":
-                    raise ValueError(f"发现未知类别值: {e}")
-                elif handle_invalid == "keep":
-                    # 对于未知值，创建全零向量
-                    # 首先需要知道类别的数量（假设已知或从数据推断）
-                    # 这里简化处理：重新fit包含所有可能值的数据
-                    all_data = result_df[[input_col]]
-                    encoder = OneHotEncoder(
-                        sparse=False,
-                        drop='first' if drop_last else None,
-                        handle_unknown='ignore'  # 未知值填充0
-                    )
-                    encoder.fit(all_data)
-                    encoded_data = encoder.transform(col_data)
-
-                    feature_names = []
-                    categories = encoder.categories_[0]
-                    for i, category in enumerate(categories):
-                        if drop_last and i == 0:
-                            continue
-                        feature_names.append(f"{output_col}_{category}")
-
-                    encoded_df = pd.DataFrame(
-                        encoded_data,
-                        columns=feature_names,
-                        index=result_df.index,
-                        dtype=np.float64
-                    )
-                    result_df = pd.concat([result_df, encoded_df], axis=1)
-                else:
-                    raise ValueError(f"不支持的handle_invalid策略: {handle_invalid}")
+            # 将独热编码列添加到结果DataFrame
+            result_df = pd.concat([result_df, encoded_df], axis=1)
 
         if _logger:
             _logger.info(f"Ray OneHotEncoder处理完成，输出列: {result_df.columns.tolist()}")

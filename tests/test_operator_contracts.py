@@ -63,9 +63,9 @@ def test_standardscaler_ray_implementation():
         assert abs(x1_scaled.mean()) < 0.1, f"x1_scaled均值不接近0: {x1_scaled.mean()}"
         assert abs(x2_scaled.mean()) < 0.1, f"x2_scaled均值不接近0: {x2_scaled.mean()}"
 
-        # 检查标准差（标准化后应接近1）
-        assert abs(x1_scaled.std() - 1.0) < 0.1, f"x1_scaled标准差不接近1: {x1_scaled.std()}"
-        assert abs(x2_scaled.std() - 1.0) < 0.1, f"x2_scaled标准差不接近1: {x2_scaled.std()}"
+        # 检查标准差（标准化后应接近1，使用总体标准差ddof=0）
+        assert abs(x1_scaled.std(ddof=0) - 1.0) < 0.1, f"x1_scaled标准差不接近1: {x1_scaled.std(ddof=0)}"
+        assert abs(x2_scaled.std(ddof=0) - 1.0) < 0.1, f"x2_scaled标准差不接近1: {x2_scaled.std(ddof=0)}"
 
         # 检查输出列不为空
         assert not x1_scaled.isna().all(), "x1_scaled列全为空"
