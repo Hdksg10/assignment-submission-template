@@ -9,7 +9,7 @@ try:
 except ImportError:
     # 如果bench模块不可用，跳过注册（用于独立测试）
     try:
-        from ...bench.logger import get_logger
+        from bench.logger import get_logger
         logger = get_logger(__name__)
         logger.warning("bench模块不可用，跳过算子注册")
     except ImportError:
