@@ -5,6 +5,7 @@ Spark会话管理模块
 from typing import Optional
 from pyspark.sql import SparkSession
 import os
+import sys
 
 try:
     from ...bench.logger import get_logger
@@ -32,6 +33,11 @@ def get_spark(app_name: str = "MLBenchmark",
     if SparkSession.getActiveSession() is not None:
         return SparkSession.getActiveSession()
 
+    # 统一指定 Python 解释器，避免 driver / worker 版本不一致
+    python_exec = sys.executable
+    os.environ["PYSPARK_PYTHON"] = python_exec
+    os.environ["PYSPARK_DRIVER_PYTHON"] = python_exec
+
     # 构建基础配置
     spark_config = {
         "spark.app.name": app_name,
@@ -40,6 +46,9 @@ def get_spark(app_name: str = "MLBenchmark",
         "spark.sql.adaptive.coalescePartitions.enabled": "true",
         "spark.driver.memory": "2g",
         "spark.executor.memory": "2g",
+        # 确保 driver / executor Python 版本一致
+        "spark.pyspark.python": python_exec,
+        "spark.pyspark.driver.python": python_exec,
         # 禁用不必要的日志
         "spark.sql.adaptive.logLevel": "ERROR",
     }
