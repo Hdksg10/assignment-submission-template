@@ -78,18 +78,30 @@ class HighPerformanceOperatorExecutor:
         # Spark算子
         try:
             from engines.spark.operators import (
-                run_standardscaler as spark_standardscaler
+                run_standardscaler as spark_standardscaler,
+                run_minmaxscaler as spark_minmaxscaler,
+                run_stringindexer as spark_stringindexer,
+                run_onehotencoder as spark_onehotencoder
             )
             cls.register_operator('spark', 'StandardScaler', spark_standardscaler)
+            cls.register_operator('spark', 'MinMaxScaler', spark_minmaxscaler)
+            cls.register_operator('spark', 'StringIndexer', spark_stringindexer)
+            cls.register_operator('spark', 'OneHotEncoder', spark_onehotencoder)
         except ImportError:
             cls._logger.warning("Spark依赖未安装，跳过注册")
 
         # Ray算子
         try:
             from engines.ray.operators import (
-                run_standardscaler_with_ray_data as ray_standardscaler
+                run_standardscaler_with_ray_data as ray_standardscaler,
+                run_minmaxscaler_with_ray_data as ray_minmaxscaler,
+                run_stringindexer_with_ray_data as ray_stringindexer,
+                run_onehotencoder_with_ray_data as ray_onehotencoder
             )
             cls.register_operator('ray', 'StandardScaler', ray_standardscaler)
+            cls.register_operator('ray', 'MinMaxScaler', ray_minmaxscaler)
+            cls.register_operator('ray', 'StringIndexer', ray_stringindexer)
+            cls.register_operator('ray', 'OneHotEncoder', ray_onehotencoder)
         except ImportError:
             cls._logger.warning("Ray依赖未安装，跳过注册")
 

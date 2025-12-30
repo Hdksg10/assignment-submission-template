@@ -4,6 +4,8 @@ Spark StandardScaler算子实现
 
 from pyspark.sql import DataFrame
 from pyspark.ml.feature import StandardScaler, VectorAssembler
+from pyspark.ml.functions import vector_to_array
+from pyspark.sql.functions import col
 from typing import List
 from bench.operator_spec import OperatorSpec
 
@@ -69,13 +71,17 @@ def run_standardscaler(spark,
         scaled_df = scaler_model.transform(assembled_df)
 
         # 步骤3: 将缩放后的向量拆分回单独的列
-        from pyspark.sql.functions import col
+        # 使用 vector_to_array 处理稀疏向量和密集向量
+        scaled_df = scaled_df.withColumn(
+            "_scaled_array",
+            vector_to_array(col("_scaled_features"))
+        )
 
-        # 提取缩放后的向量元素
+        # 从数组中提取各个元素
         for i, (input_col, output_col) in enumerate(zip(input_cols, output_cols)):
             scaled_df = scaled_df.withColumn(
                 output_col,
-                col("_scaled_features")[i]
+                col("_scaled_array")[i]
             )
 
         # 步骤4: 选择输出列（保留原始列和新的缩放列）

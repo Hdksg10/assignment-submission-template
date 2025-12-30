@@ -14,7 +14,7 @@ except ImportError:
     _logger = None
 
 
-def init_ray(address: Optional[str] = None,
+def init_ray(address: str = "auto",
              num_cpus: Optional[int] = None,
              num_gpus: Optional[int] = None,
              memory: Optional[int] = None,
@@ -24,7 +24,7 @@ def init_ray(address: Optional[str] = None,
     初始化Ray运行时
 
     Args:
-        address: Ray集群地址 (None表示启动本地实例，字符串表示连接到指定地址)
+        address: Ray集群地址 ('auto'表示自动检测)
         num_cpus: CPU核心数
         num_gpus: GPU数量
         memory: 内存大小（字节）
@@ -48,15 +48,12 @@ def init_ray(address: Optional[str] = None,
 
     # 构建初始化参数
     init_kwargs = {
+        "address": None,
         "num_cpus": num_cpus,
         "num_gpus": num_gpus,
         "ignore_reinit_error": True,  # 允许重复初始化
         "logging_level": "WARNING",  # 减少日志输出
     }
-
-    # 只有在明确指定 address 时才添加 address 参数
-    if address is not None:
-        init_kwargs["address"] = address
 
     # 添加可选参数
     if memory:
