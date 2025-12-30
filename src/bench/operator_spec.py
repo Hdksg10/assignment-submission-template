@@ -220,3 +220,115 @@ register_operator_spec(OperatorSpec(
         "no_inplace_mutation": True  # 禁止就地修改
     }
 ))
+
+# Imputer - 缺失值填充算子
+register_operator_spec(OperatorSpec(
+    name="Imputer",
+    input_cols=["x1", "x2"],  # 默认输入列，可通过参数覆盖
+    output_cols=["x1_imputed", "x2_imputed"],
+    params={
+        "strategy": "mean",  # mean | median | mode (Spark支持的策略)
+        "input_cols": ["x1", "x2"],  # 运行时可覆盖
+        "output_cols": ["x1_imputed", "x2_imputed"]
+    },
+    description="缺失值填充：使用指定的策略(mean/median/mode)填充缺失值",
+    engine_impl_names={
+        "spark": "Imputer",  # Spark MLlib中的类名
+        "ray": "imputer"    # Ray中的实现标识
+    },
+    stateful=True,  # 有状态算子，需要全局统计
+    alignment_policy="Ray-Extended",  # Ray侧自研以支持median策略
+    output_schema={
+        "dtype": "float64",
+        "format": "scalar"  # scalar | dense_vector | sparse_vector
+    },
+    ray_impl_hint={
+        "preferred": "fit_transform",  # 优先使用自研fit/transform
+        "batch_format": "pandas",  # 固定batch_format
+        "no_inplace_mutation": True  # 禁止就地修改
+    }
+))
+
+# Tokenizer - 文本分词算子
+register_operator_spec(OperatorSpec(
+    name="Tokenizer",
+    input_cols=["text"],  # 默认输入列，可通过参数覆盖
+    output_cols=["tokens"],
+    params={
+        "pattern": None,  # 分词模式（正则表达式），None表示使用默认分词
+        "input_col": "text",  # 运行时可覆盖
+        "output_col": "tokens"
+    },
+    description="文本分词：将文本字符串分割为token数组",
+    engine_impl_names={
+        "spark": "Tokenizer",  # Spark MLlib中的类名
+        "ray": "tokenizer"    # Ray中的实现标识
+    },
+    stateful=False,  # 无状态算子，逐行处理
+    alignment_policy="Intersection",  # 使用标准分词行为
+    output_schema={
+        "dtype": "string",
+        "format": "array"  # 字符串数组
+    },
+    ray_impl_hint={
+        "preferred": "map_batches",  # 直接使用map_batches
+        "batch_format": "pandas",  # 固定batch_format
+        "no_inplace_mutation": True  # 禁止就地修改
+    }
+))
+
+# HashingTF - 特征哈希向量化算子
+register_operator_spec(OperatorSpec(
+    name="HashingTF",
+    input_cols=["tokens"],  # 默认输入列，可通过参数覆盖
+    output_cols=["tf_features"],
+    params={
+        "num_features": 2**18,  # 特征维度（默认2^18）
+        "input_col": "tokens",  # 运行时可覆盖
+        "output_col": "tf_features"
+    },
+    description="特征哈希向量化：将token数组转换为固定长度向量",
+    engine_impl_names={
+        "spark": "HashingTF",  # Spark MLlib中的类名
+        "ray": "hashing_tf"    # Ray中的实现标识
+    },
+    stateful=False,  # 无状态算子，逐行哈希
+    alignment_policy="Ray-Extended",  # Ray侧自研以固定哈希行为
+    output_schema={
+        "dtype": "float64",
+        "format": "sparse_vector"  # 稀疏向量
+    },
+    ray_impl_hint={
+        "preferred": "map_batches",  # 直接使用map_batches
+        "batch_format": "pandas",  # 固定batch_format
+        "no_inplace_mutation": True  # 禁止就地修改
+    }
+))
+
+# IDF - 逆文档频率算子
+register_operator_spec(OperatorSpec(
+    name="IDF",
+    input_cols=["tf_features"],  # 默认输入列，可通过参数覆盖
+    output_cols=["tfidf_features"],
+    params={
+        "min_doc_freq": 1,  # 最小文档频率
+        "input_col": "tf_features",  # 运行时可覆盖
+        "output_col": "tfidf_features"
+    },
+    description="逆文档频率：将TF向量转换为TF-IDF向量",
+    engine_impl_names={
+        "spark": "IDF",  # Spark MLlib中的类名
+        "ray": "idf"    # Ray中的实现标识
+    },
+    stateful=True,  # 有状态算子，需要全局文档频率统计
+    alignment_policy="Ray-Extended",  # Ray侧自研fit/transform
+    output_schema={
+        "dtype": "float64",
+        "format": "sparse_vector"  # 稀疏向量
+    },
+    ray_impl_hint={
+        "preferred": "fit_transform",  # 必须使用fit/transform
+        "batch_format": "pandas",  # 固定batch_format
+        "no_inplace_mutation": True  # 禁止就地修改
+    }
+))

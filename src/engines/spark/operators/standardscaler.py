@@ -94,6 +94,10 @@ def run_standardscaler(spark,
         return final_df
 
     except Exception as e:
+        if _logger:
+            _logger.error(f"StandardScaler执行失败: {e}", exc_info=True)
+        else:
+            print(f"ERROR: StandardScaler执行失败: {e}")
         raise RuntimeError(f"StandardScaler执行失败: {e}")
 
 
@@ -135,4 +139,8 @@ def run_standardscaler_pandas(spark,
         return result_df
 
     except Exception as e:
+        if _logger:
+            _logger.error(f"pandas StandardScaler执行失败: {e}", exc_info=True)
+        else:
+            print(f"ERROR: pandas StandardScaler执行失败: {e}")
         raise RuntimeError(f"pandas StandardScaler执行失败: {e}")
