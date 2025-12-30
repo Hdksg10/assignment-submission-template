@@ -73,23 +73,30 @@ class PipelineConfig:
         current_input_cols = None
 
         for operator_name in operator_names:
-            spec = get_operator_spec(operator_name)
+            # 获取原始spec（不要修改注册表中的对象）
+            original_spec = get_operator_spec(operator_name)
 
             # 如果是第一个算子，使用默认输入列
             if current_input_cols is None:
-                current_input_cols = spec.input_cols
+                current_input_cols = original_spec.input_cols
 
-            # 更新规格的输入列
-            spec.input_cols = current_input_cols
+            # 创建新的spec拷贝，不修改原对象
+            step_spec = OperatorSpec(
+                name=original_spec.name,
+                input_cols=current_input_cols,  # 使用推导的输入列
+                output_cols=original_spec.output_cols,
+                params=original_spec.params.copy(),
+                description=original_spec.description
+            )
 
             step = PipelineStep(
                 operator_name=operator_name,
-                spec=spec
+                spec=step_spec
             )
             steps.append(step)
 
             # 下一步的输入列是当前步骤的输出列
-            current_input_cols = spec.output_cols
+            current_input_cols = step_spec.output_cols
 
         pipeline_name = name or f"pipeline_{'_'.join(operator_names)}"
 
@@ -153,7 +160,8 @@ class HighPerformancePipelineExecutor:
     def execute_pipeline(self,
                         steps: List[PipelineStep],
                         input_df,
-                        measure_performance: bool = False) -> Union[Any, Tuple[Any, float]]:
+                        measure_performance: bool = False,
+                        per_step_timing: bool = False) -> Union[Any, Tuple[Any, float]]:
         """
         执行算子管道 - 高性能版本
 
@@ -161,6 +169,7 @@ class HighPerformancePipelineExecutor:
             steps: 管道步骤列表
             input_df: 输入DataFrame（pandas或Spark）
             measure_performance: 是否测量性能
+            per_step_timing: 是否需要每步计时（会导致每步都触发action）
 
         Returns:
             如果measure_performance=False: 最终处理后的DataFrame
@@ -181,16 +190,30 @@ class HighPerformancePipelineExecutor:
 
         try:
             # 顺序执行所有算子
-            for context in contexts:
+            for i, context in enumerate(contexts):
                 operator_func = HighPerformanceOperatorExecutor.get_operator_func(
                     context.engine, context.operator_name
                 )
 
                 current_df = DirectOperatorExecutor.execute_operator(context, current_df)
 
-                # 对于Spark，确保lazy操作被触发
+                # 只在需要per-step timing时才每步触发action
+                # 否则只构建变换链，最后统一触发
+                if per_step_timing:
+                    # 需要persist/cache避免重复计算
+                    if self.engine == 'spark' and hasattr(current_df, 'cache'):
+                        current_df = current_df.cache()
+                        current_df.count()  # 触发cache
+                    elif self.engine == 'ray' and hasattr(current_df, 'materialize'):
+                        current_df = current_df.materialize()
+
+            # 在最后触发一次action（如果还没触发）
+            if measure_performance and not per_step_timing:
                 if self.engine == 'spark' and hasattr(current_df, 'count'):
-                    current_df.count()  # 触发执行但不收集结果
+                    current_df.count()  # 触发整个pipeline的执行
+                elif self.engine == 'ray' and hasattr(current_df, 'materialize'):
+                    current_df = current_df.materialize()
+                    current_df.count()
 
             if measure_performance:
                 total_elapsed = self.timer.stop()
@@ -207,7 +230,10 @@ class HighPerformancePipelineExecutor:
                                              steps: List[PipelineStep],
                                              input_df) -> Dict[str, Any]:
         """
-        执行管道并收集详细性能指标
+        执行管道并收集详细性能指标（每步计时）
+        
+        注意：每步计时会导致每步都触发action，并使用cache/materialize避免重复计算。
+        这不是"算子本体"的纯净计时，而是包含了持久化开销。
 
         Args:
             steps: 管道步骤列表
@@ -241,9 +267,12 @@ class HighPerformancePipelineExecutor:
 
             current_df = DirectOperatorExecutor.execute_operator(context, current_df)
 
-            # 对于Spark，确保lazy操作被触发
-            if self.engine == 'spark' and hasattr(current_df, 'count'):
-                current_df.count()
+            # 每步都需要persist/materialize + trigger
+            if self.engine == 'spark' and hasattr(current_df, 'cache'):
+                current_df = current_df.cache()
+                current_df.count()  # 触发cache
+            elif self.engine == 'ray' and hasattr(current_df, 'materialize'):
+                current_df = current_df.materialize()
 
             step_elapsed = time.perf_counter() - step_start
 

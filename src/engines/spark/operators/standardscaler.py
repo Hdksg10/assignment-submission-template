@@ -84,9 +84,10 @@ def run_standardscaler(spark,
                 col("_scaled_array")[i]
             )
 
-        # 步骤4: 选择输出列（保留原始列和新的缩放列）
-        output_columns = existing_cols + output_cols
-        final_df = scaled_df.select(*output_columns)
+        # 步骤4: 选择输出列（遵循MLlib标准：不保留原始input_cols）
+        # 删除input_cols（如果与output_cols不同）和所有临时列
+        keep_cols = [c for c in existing_cols if c not in input_cols] + output_cols
+        final_df = scaled_df.select(*keep_cols)
 
         if _logger:
             _logger.info(f"StandardScaler处理完成，输出列: {final_df.columns}")

@@ -1,19 +1,13 @@
 # Ray operators
 
-from .standardscaler import run_standardscaler
-from .minmaxscaler import run_minmaxscaler
-from .stringindexer import run_stringindexer
-from .onehotencoder import run_onehotencoder
+from .standardscaler import run_standardscaler, run_standardscaler_with_ray_data
+from .minmaxscaler import run_minmaxscaler, run_minmaxscaler_with_ray_data
+from .stringindexer import run_stringindexer, run_stringindexer_with_ray_data
+from .onehotencoder import run_onehotencoder, run_onehotencoder_with_ray_data
 from .imputer import run_imputer_with_ray_data
 from .tokenizer import run_tokenizer_with_ray_data
 from .hashingtf import run_hashingtf_with_ray_data
 from .idf import run_idf_with_ray_data
-
-# 为兼容管道执行器的别名
-run_standardscaler_with_ray_data = run_standardscaler
-run_minmaxscaler_with_ray_data = run_minmaxscaler
-run_stringindexer_with_ray_data = run_stringindexer
-run_onehotencoder_with_ray_data = run_onehotencoder
 
 # 注册算子到高性能执行器工厂
 try:

@@ -85,8 +85,9 @@ def run_minmaxscaler(spark,
                 col("_scaled_array")[idx]
             )
 
-        # 选择输出列：保留原始列并追加新列
-        final_df = scaled_df.select(*(existing_cols + output_cols))
+        # 选择输出列（遵循MLlib标准：不保留原始input_cols）
+        keep_cols = [c for c in existing_cols if c not in input_cols] + output_cols
+        final_df = scaled_df.select(*keep_cols)
 
         if _logger:
             _logger.info("MinMaxScaler处理完成，输出列: %s", final_df.columns)

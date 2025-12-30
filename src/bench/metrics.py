@@ -75,16 +75,20 @@ class MetricsCollector:
         return elapsed
 
     def collect_metrics(self,
-                       input_df: pd.DataFrame,
-                       output_df: pd.DataFrame,
+                       input_rows: int,
+                       input_cols: int,
+                       output_rows: int,
+                       output_cols: int,
                        elapsed_seconds: float,
                        memory_mb: Optional[float] = None) -> PerformanceMetrics:
         """
         收集完整的性能指标
 
         Args:
-            input_df: 输入DataFrame
-            output_df: 输出DataFrame
+            input_rows: 输入行数
+            input_cols: 输入列数
+            output_rows: 输出行数
+            output_cols: 输出列数
             elapsed_seconds: 耗时（秒）
             memory_mb: 内存使用（MB），可选
 
@@ -92,15 +96,15 @@ class MetricsCollector:
             PerformanceMetrics: 性能指标
         """
         # 计算吞吐量
-        throughput = input_df.shape[0] / elapsed_seconds if elapsed_seconds > 0 else 0
+        throughput = input_rows / elapsed_seconds if elapsed_seconds > 0 else 0
 
         metrics = PerformanceMetrics(
             wall_time_seconds=round(elapsed_seconds, 3),
             throughput_rows_per_sec=round(throughput, 2),
-            input_rows=input_df.shape[0],
-            input_cols=input_df.shape[1],
-            output_rows=output_df.shape[0],
-            output_cols=output_df.shape[1],
+            input_rows=input_rows,
+            input_cols=input_cols,
+            output_rows=output_rows,
+            output_cols=output_cols,
             timestamp=time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
             memory_mb=memory_mb
         )
@@ -122,6 +126,8 @@ class ExperimentRunner:
                       operator: str,
                       dataset_path: str,
                       operator_func,
+                      input_profile_df: pd.DataFrame,
+                      materialize_func,
                       *args,
                       **kwargs) -> ExperimentResult:
         """
@@ -132,6 +138,8 @@ class ExperimentRunner:
             operator: 算子名称
             dataset_path: 数据集路径
             operator_func: 算子执行函数
+            input_profile_df: 用于获取输入数据行列数的pandas DataFrame（不参与算子执行）
+            materialize_func: 触发分布式执行的函数（在计时区间内调用）
             *args, **kwargs: 传递给算子函数的参数
 
         Returns:
@@ -142,14 +150,16 @@ class ExperimentRunner:
 
         all_metrics = []
 
-        # 加载输入数据（假设第一个参数是DataFrame或可以用来获取形状）
-        input_df = args[0] if args else kwargs.get('df')
+        # 从profile DataFrame获取输入数据的行列数
+        input_rows = input_profile_df.shape[0]
+        input_cols = input_profile_df.shape[1]
 
-        # Warm-up run
+        # Warm-up run - 必须包含算子执行和materialize
         if self.warmup:
             self._logger.info("执行预热运行...")
             try:
-                _ = operator_func(*args, **kwargs)
+                warmup_output = operator_func(*args, **kwargs)
+                materialize_func(warmup_output)
                 self._logger.info("预热运行完成")
             except Exception as e:
                 self._logger.warning(f"预热运行失败: {e}")
@@ -166,12 +176,26 @@ class ExperimentRunner:
 
             try:
                 output_df = operator_func(*fresh_args, **kwargs)
+                # 在计时区间内触发分布式执行
+                materialize_func(output_df)
                 elapsed = self.collector.end_measurement()
+
+                # 推断输出行列数
+                # 对于大多数预处理算子，行数不变
+                output_rows = input_rows
+                # 列数保守估计：如果有spec，使用spec的output_cols长度
+                spec = kwargs.get('spec')
+                if spec and hasattr(spec, 'output_cols'):
+                    output_cols = input_cols + len(spec.output_cols) - len(spec.input_cols)
+                else:
+                    output_cols = input_cols
 
                 # 收集指标
                 metrics = self.collector.collect_metrics(
-                    input_df=input_df,
-                    output_df=output_df,
+                    input_rows=input_rows,
+                    input_cols=input_cols,
+                    output_rows=output_rows,
+                    output_cols=output_cols,
                     elapsed_seconds=elapsed
                 )
                 all_metrics.append(metrics)
@@ -182,8 +206,8 @@ class ExperimentRunner:
                 failed_metrics = PerformanceMetrics(
                     wall_time_seconds=-1,
                     throughput_rows_per_sec=0,
-                    input_rows=input_df.shape[0] if input_df is not None else 0,
-                    input_cols=input_df.shape[1] if input_df is not None else 0,
+                    input_rows=input_rows,
+                    input_cols=input_cols,
                     output_rows=0,
                     output_cols=0,
                     timestamp=time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())

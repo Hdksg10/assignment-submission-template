@@ -78,7 +78,8 @@ def run_stringindexer(spark,
                 col(output_col).cast(IntegerType())
             )
 
-        # 选择输出列（保留原始列和新的索引列）
+        # StringIndexer 的特殊行为：保留原始列（因为需要验证映射关系）
+        # Spark MLlib 的 StringIndexer 默认保留原始列（输出到新列）
         output_columns = existing_cols + output_cols
         final_df = result_df.select(*output_columns)
 

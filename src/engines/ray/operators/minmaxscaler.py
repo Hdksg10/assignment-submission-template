@@ -13,24 +13,35 @@ except ImportError:
     _logger = None
 
 
-def run_minmaxscaler(input_data, spec: OperatorSpec):
-    """使用Ray官方MinMaxScaler API（缩放到[0,1]）- 支持DataFrame和Ray Dataset"""
-    # 使用 spec 的 input_cols 和 output_cols（框架可能已修改）
+def run_minmaxscaler_with_ray_data(ray_dataset: ray.data.Dataset, spec: OperatorSpec):
+    """
+    使用Ray官方MinMaxScaler API - 核心实现（仅用于benchmark）
+    
+    Args:
+        ray_dataset: Ray Dataset（必须是Ray Dataset，不接受pandas）
+        spec: 算子规格
+        
+    Returns:
+        Ray Dataset
+    """
+    # 强校验：必须是Ray Dataset
+    if not isinstance(ray_dataset, ray.data.Dataset):
+        raise TypeError(f"Expected ray.data.Dataset, got {type(ray_dataset)}. "
+                       f"Use run_minmaxscaler() wrapper for pandas input.")
+    
     input_cols = spec.input_cols
     output_cols = spec.output_cols
     
     if _logger:
         _logger.info(f"MinMaxScaler: {input_cols} -> {output_cols}")
     
-    # 总是假设输入是Ray Dataset（框架已经转换）
-    ray_dataset = input_data if hasattr(input_data, 'to_pandas') else ray.data.from_pandas(input_data)
-    
-    # 使用Ray的MinMaxScaler preprocessor
+    # 遵循 Spark MLlib 标准行为：不保留原始列（最小 overhead）
+    # 直接在 input_cols 上操作（原地替换）
     preprocessor = RayMinMaxScaler(columns=input_cols)
     fitted = preprocessor.fit(ray_dataset)
     result = fitted.transform(ray_dataset)
     
-    # 列重命名
+    # 如果输出列名不同，只需重命名（仍然不保留原始列）
     if input_cols != output_cols:
         rename_map = dict(zip(input_cols, output_cols))
         result = result.map_batches(
@@ -38,5 +49,19 @@ def run_minmaxscaler(input_data, spec: OperatorSpec):
             batch_format="pandas"
         )
     
-    # 总是返回Ray Dataset（保持框架的期望）
     return result
+
+
+def run_minmaxscaler(input_data, spec: OperatorSpec):
+    """
+    便利wrapper - 支持pandas或Ray Dataset输入
+    
+    注意：benchmark代码应该直接调用run_minmaxscaler_with_ray_data
+    """
+    if isinstance(input_data, ray.data.Dataset):
+        return run_minmaxscaler_with_ray_data(input_data, spec)
+    elif isinstance(input_data, pd.DataFrame):
+        ray_dataset = ray.data.from_pandas(input_data)
+        return run_minmaxscaler_with_ray_data(ray_dataset, spec)
+    else:
+        raise TypeError(f"Expected ray.data.Dataset or pd.DataFrame, got {type(input_data)}")
