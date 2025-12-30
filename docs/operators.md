@@ -290,12 +290,12 @@ Ray 侧每个算子按如下顺序选择实现方式：
   - 若 Ray 当前实现为 `map_batches + sklearn`，需确认是否为 **全局 fit 后 transform**，否则需重构为 Stateful 流程。
 
 ### 开发中算子（建议优先）
-- 🔄 StringIndexer（高风险差异：handleInvalid/unseen/排序规则）
-- 🔄 OneHotEncoder（依赖 StringIndexer，drop_last 与 unknown 策略需对齐）
+- 🔄 StringIndexer（高风险差异：handleInvalid/unseen/排序规则）   //ray已经实现
+- 🔄 OneHotEncoder（依赖 StringIndexer，drop_last 与 unknown 策略需对齐）   //ray已经实现
 - 🔄 Imputer（median 策略是否支持需定策）
 
 ### 待实现算子
-- ⏳ MinMaxScaler
+- ⏳ MinMaxScaler    //ray已经实现
 - ⏳ Tokenizer
 - ⏳ HashingTF
 - ⏳ IDF
