@@ -559,6 +559,229 @@ def test_minmaxscaler_spark_implementation():
     except Exception as e:
         pytest.fail(f"Spark MinMaxScaler测试失败: {e}")
 
+def test_imputer_ray_implementation():
+    """测试Ray Imputer实现"""
+    try:
+        from bench.operator_spec import get_operator_spec
+        from engines.ray.operators.imputer import run_imputer_with_ray_data
+        import ray
+
+        # 初始化Ray
+        ray.init(ignore_reinit_error=True)
+
+        # 获取规格
+        spec = get_operator_spec("Imputer")
+
+        # 创建测试数据包含缺失值
+        test_data = {
+            "x1": [1.0, 2.0, None, 4.0, 5.0],
+            "x2": [10.0, None, 30.0, 40.0, 50.0],
+            "cat": ["A", "B", "C", None, "B"],
+            "text": ["text1", "text2", None, "text4", "text5"]
+        }
+        import pandas as pd
+        test_df = pd.DataFrame(test_data)
+
+        # 创建Ray数据集
+        ray_dataset = ray.data.from_pandas(test_df)
+
+        # 执行算子
+        result_dataset = run_imputer_with_ray_data(ray_dataset, spec)
+
+        # 转换为pandas验证
+        result_pandas = result_dataset.to_pandas()
+
+        # 验证基本契约
+        assert len(result_pandas) == len(test_df), "输出行数应与输入相同"
+        assert "x1_imputed" in result_pandas.columns, "应包含x1_imputed列"
+        assert "x2_imputed" in result_pandas.columns, "应包含x2_imputed列"
+
+        # 验证缺失值填充结果（默认策略为mean）
+        x1_imputed = result_pandas["x1_imputed"]
+        x2_imputed = result_pandas["x2_imputed"]
+
+        # 检查填充后的列不应有缺失值
+        assert not x1_imputed.isna().any(), "x1_imputed列应无缺失值"
+        assert not x2_imputed.isna().any(), "x2_imputed列应无缺失值"
+
+        # 清理Ray
+        ray.shutdown()
+
+    except ImportError:
+        pytest.skip("Ray依赖未安装")
+    except Exception as e:
+        pytest.fail(f"Ray Imputer测试失败: {e}")
+
+def test_tokenizer_ray_implementation():
+    """测试Ray Tokenizer实现"""
+    try:
+        from bench.operator_spec import get_operator_spec
+        from engines.ray.operators.tokenizer import run_tokenizer_with_ray_data
+        import ray
+
+        # 初始化Ray
+        ray.init(ignore_reinit_error=True)
+
+        # 获取规格
+        spec = get_operator_spec("Tokenizer")
+
+        # 创建测试数据
+        test_data = {
+            "text": [
+                "This is the first document.",
+                "This document is the second document.",
+                "And this is the third one.",
+                "Is this the first document?"
+            ]
+        }
+        import pandas as pd
+        test_df = pd.DataFrame(test_data)
+
+        # 创建Ray数据集
+        ray_dataset = ray.data.from_pandas(test_df)
+
+        # 执行算子
+        result_dataset = run_tokenizer_with_ray_data(ray_dataset, spec)
+
+        # 转换为pandas验证
+        result_pandas = result_dataset.to_pandas()
+
+        # 验证基本契约
+        assert len(result_pandas) == len(test_df), "输出行数应与输入相同"
+        assert "tokens" in result_pandas.columns, "应包含tokens列"
+
+        # 验证分词结果
+        tokens = result_pandas["tokens"]
+
+        # 检查分词结果应为列表类型
+        for token_list in tokens:
+            assert isinstance(token_list, list), "分词结果应为列表类型"
+            assert len(token_list) > 0, "分词结果不应为空列表"
+            for token in token_list:
+                assert isinstance(token, str), "分词应为字符串类型"
+                assert len(token) > 0, "分词不应为空字符串"
+
+        for i, row in result_pandas.iterrows():
+            original_text = test_df.loc[i, "text"]
+            tokenized_text = " ".join(row["tokens"])
+            assert all(word in original_text for word in row["tokens"]), f"分词结果不匹配原文: {tokenized_text} vs {original_text}"
+
+        # 清理Ray
+        ray.shutdown()
+
+    except ImportError:
+        pytest.skip("Ray依赖未安装")
+    except Exception as e:
+        pytest.fail(f"Ray Tokenizer测试失败: {e}")
+
+def test_hashingtf_ray_implementation():
+    """测试Ray HashingTF实现"""
+    try:
+        from bench.operator_spec import get_operator_spec
+        from engines.ray.operators.hashingtf import run_hashingtf_with_ray_data
+        import ray
+
+        # 初始化Ray
+        ray.init(ignore_reinit_error=True)
+
+        # 获取规格
+        spec = get_operator_spec("HashingTF")
+
+        # 创建测试数据
+        test_data = {
+            "tokens": [
+                ["this", "is", "the", "first", "document"],
+                ["this", "document", "is", "the", "second", "document"],
+                ["and", "this", "is", "the", "third", "one"],
+                ["is", "this", "the", "first", "document"]
+            ]
+        }
+        import pandas as pd
+        test_df = pd.DataFrame(test_data)
+
+        # 创建Ray数据集
+        ray_dataset = ray.data.from_pandas(test_df)
+
+        # 执行算子
+        result_dataset = run_hashingtf_with_ray_data(ray_dataset, spec)
+
+        # 转换为pandas验证
+        result_pandas = result_dataset.to_pandas()
+
+        # 验证基本契约
+        assert len(result_pandas) == len(test_df), "输出行数应与输入相同"
+        assert "tf_features" in result_pandas.columns, "应包含tf_features列"
+
+        # 验证HashingTF结果
+        features = result_pandas["tf_features"]
+
+        # 检查features应为向量类型且不为空
+        for feature_vector in features:
+            assert feature_vector is not None, "特征向量不应为空"
+
+        assert len(features) == len(test_df), "特征向量数量应与输入行数相同"
+        
+        # 清理Ray
+        ray.shutdown()
+
+    except ImportError:
+        pytest.skip("Ray依赖未安装")
+    except Exception as e:
+        pytest.fail(f"Ray HashingTF测试失败: {e}")
+
+def test_idf_ray_implementation():
+    """测试Ray IDF实现"""
+    try:
+        from bench.operator_spec import get_operator_spec
+        from engines.ray.operators.idf import run_idf_with_ray_data
+        import ray
+
+        # 初始化Ray
+        ray.init(ignore_reinit_error=True)
+
+        # 获取规格
+        spec = get_operator_spec("IDF")
+
+        # 创建测试数据
+        test_data = {
+            "tf_features": [
+                [1.0, 2.0, 0.0, 0.0],
+                [0.0, 1.0, 3.0, 0.0],
+                [0.0, 0.0, 1.0, 4.0],
+                [1.0, 0.0, 0.0, 2.0]
+            ]
+        }
+        import pandas as pd
+        test_df = pd.DataFrame(test_data)
+
+        # 创建Ray数据集
+        ray_dataset = ray.data.from_pandas(test_df)
+
+        # 执行算子
+        result_dataset = run_idf_with_ray_data(ray_dataset, spec)
+
+        # 转换为pandas验证
+        result_pandas = result_dataset.to_pandas()
+
+        # 验证基本契约
+        assert len(result_pandas) == len(test_df), "输出行数应与输入相同"
+        assert "tfidf_features" in result_pandas.columns, "应包含tfidf_features列"
+
+        # 验证IDF结果
+        tfidf_features = result_pandas["tfidf_features"]
+
+        # 检查tfidf_features应为向量类型且不为空
+        for feature_vector in tfidf_features:
+            assert feature_vector is not None, "IDF特征向量不应为空"
+        
+
+        # 清理Ray
+        ray.shutdown()
+
+    except ImportError:
+        pytest.skip("Ray依赖未安装")
+    except Exception as e:
+        pytest.fail(f"Ray IDF测试失败: {e}")
 
 if __name__ == "__main__":
     # 运行所有测试
@@ -577,7 +800,11 @@ if __name__ == "__main__":
         test_onehotencoder_contract,
         test_onehotencoder_spark_implementation,
         test_stringindexer_onehotencoder_pipeline,
-        test_minmaxscaler_spark_implementation
+        test_minmaxscaler_spark_implementation,
+        test_imputer_ray_implementation,
+        test_tokenizer_ray_implementation,
+        test_hashingtf_ray_implementation,
+        test_idf_ray_implementation,
     ]
 
     passed = 0
