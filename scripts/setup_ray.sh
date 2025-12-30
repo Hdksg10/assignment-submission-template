@@ -16,7 +16,7 @@ fi
 
 # 安装Ray
 echo "安装Ray..."
-if pip3 install ray==2.0.0 pandas scikit-learn; then
+if pip3 install ray==2.52.1 pandas scikit-learn; then
     echo "✓ Ray安装成功"
 else
     echo "✗ Ray安装失败"
