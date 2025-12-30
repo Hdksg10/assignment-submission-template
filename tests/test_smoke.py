@@ -191,8 +191,11 @@ def test_operator_execution():
             "text": ["text1", "text2", "text3"]
         })
 
-        # 执行算子
-        result_df = run_standardscaler(test_df, spec)
+        # 执行算子（返回Ray Dataset）
+        result_ds = run_standardscaler(test_df, spec)
+        
+        # 转换为pandas验证
+        result_df = result_ds.to_pandas()
 
         # 验证结果
         assert len(result_df) == len(test_df)

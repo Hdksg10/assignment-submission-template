@@ -119,7 +119,7 @@ def run_single_experiment(args) -> None:
         logger.info(f"运行算子: {spec.name}")
         logger.info(f"描述: {spec.description}")
 
-        # 加载数据
+        # 加载数据（pandas，用于profile）
         logger.info(f"加载数据: {args.input}")
         df = load_csv(args.input)
         logger.info(f"数据形状: {df.shape}")
@@ -132,13 +132,15 @@ def run_single_experiment(args) -> None:
         if args.engine == 'spark':
             from ..engines.spark.session import get_spark
             from ..engines.spark.operators import run_standardscaler
+            from .materialize import materialize_spark
 
-            # 初始化Spark
+            # 初始化Spark（计时外）
             spark = get_spark("BenchmarkApp")
             logger.info("Spark会话已初始化")
 
-            # 转换pandas到Spark DataFrame
+            # 转换pandas到Spark DataFrame（计时外）
             spark_df = spark.createDataFrame(df)
+            logger.info("数据已转换为Spark DataFrame")
 
             # 运行算子
             if args.operator == 'StandardScaler':
@@ -148,8 +150,10 @@ def run_single_experiment(args) -> None:
                     operator=args.operator,
                     dataset_path=args.input,
                     operator_func=run_standardscaler,
+                    input_profile_df=df,  # pandas用于profile
+                    materialize_func=materialize_spark,  # 触发执行
                     spark=spark,
-                    input_df=spark_df,
+                    input_df=spark_df,  # Spark DF作为算子输入
                     spec=spec
                 )
             else:
@@ -157,12 +161,18 @@ def run_single_experiment(args) -> None:
 
         elif args.engine == 'ray':
             import ray
+            import ray.data as rd
             from ..engines.ray.runtime import init_ray
             from ..engines.ray.operators import run_standardscaler
+            from .materialize import materialize_ray
 
-            # 初始化Ray
+            # 初始化Ray（计时外）
             init_ray()
             logger.info("Ray运行时已初始化")
+
+            # 转换pandas到Ray Dataset（计时外）
+            ray_ds = rd.from_pandas(df)
+            logger.info("数据已转换为Ray Dataset")
 
             # 运行算子
             if args.operator == 'StandardScaler':
@@ -172,7 +182,9 @@ def run_single_experiment(args) -> None:
                     operator=args.operator,
                     dataset_path=args.input,
                     operator_func=run_standardscaler,
-                    input_df=df,
+                    input_profile_df=df,  # pandas用于profile
+                    materialize_func=materialize_ray,  # 触发执行
+                    input_df=ray_ds,  # Ray Dataset作为算子输入
                     spec=spec
                 )
             else:
@@ -336,20 +348,23 @@ def run_pipeline_experiment(args) -> None:
             engine=args.engine
         )
 
-        # 初始化引擎
+        # 保存原始pandas DataFrame用于profile
+        pandas_df = df
+
+        # 初始化引擎（计时外）
         spark_session = None
         if args.engine == 'spark':
             from ..engines.spark.session import get_spark
             spark_session = get_spark("PipelineApp")
             df = spark_session.createDataFrame(df)
-            logger.info("Spark会话已初始化")
+            logger.info("Spark会话已初始化，数据已转换为Spark DataFrame")
         elif args.engine == 'ray':
             from ..engines.ray.runtime import init_ray
             init_ray()
-            # 对于Ray，使用Ray Dataset
+            # 对于Ray，使用Ray Dataset（计时外）
             import ray.data as rd
             df = rd.from_pandas(df)
-            logger.info("Ray运行时已初始化")
+            logger.info("Ray运行时已初始化，数据已转换为Ray Dataset")
 
         # 运行管道实验
         runner = OptimizedPipelineRunner(

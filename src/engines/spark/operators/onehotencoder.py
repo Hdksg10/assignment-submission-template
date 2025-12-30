@@ -73,9 +73,9 @@ def run_onehotencoder(spark,
             encoder_model = encoder.fit(result_df)
             result_df = encoder_model.transform(result_df)
 
-        # 选择输出列（保留原始列和新的独热编码列）
-        output_columns = existing_cols + output_cols
-        final_df = result_df.select(*output_columns)
+        # 选择输出列（遵循MLlib标准：不保留原始input_cols）
+        keep_cols = [c for c in existing_cols if c not in input_cols] + output_cols
+        final_df = result_df.select(*keep_cols)
 
         if _logger:
             _logger.info(f"OneHotEncoder处理完成，输出列: {final_df.columns}")
