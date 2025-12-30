@@ -81,3 +81,7 @@ coverage.xml
 .#*
 *#*#
 *~
+.hf_cache
+
+# datasets
+/data/large
