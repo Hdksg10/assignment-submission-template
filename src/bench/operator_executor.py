@@ -78,9 +78,15 @@ class HighPerformanceOperatorExecutor:
         # Spark算子
         try:
             from engines.spark.operators import (
-                run_standardscaler as spark_standardscaler
+                run_standardscaler as spark_standardscaler,
+                run_minmaxscaler as spark_minmaxscaler,
+                run_stringindexer as spark_stringindexer,
+                run_onehotencoder as spark_onehotencoder
             )
             cls.register_operator('spark', 'StandardScaler', spark_standardscaler)
+            cls.register_operator('spark', 'MinMaxScaler', spark_minmaxscaler)
+            cls.register_operator('spark', 'StringIndexer', spark_stringindexer)
+            cls.register_operator('spark', 'OneHotEncoder', spark_onehotencoder)
         except ImportError:
             cls._logger.warning("Spark依赖未安装，跳过注册")
 
