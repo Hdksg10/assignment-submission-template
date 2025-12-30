@@ -48,7 +48,7 @@ def init_ray(address: str = "auto",
 
     # 构建初始化参数
     init_kwargs = {
-        "address": address,
+        "address": None,
         "num_cpus": num_cpus,
         "num_gpus": num_gpus,
         "ignore_reinit_error": True,  # 允许重复初始化

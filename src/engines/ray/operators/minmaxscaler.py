@@ -130,8 +130,7 @@ def _fit_minmaxscaler(ray_dataset, input_cols: list, min_val: float, max_val: fl
     batch_stats = ray_dataset.map_batches(
         compute_batch_stats,
         batch_format="pandas",
-        batch_size=4096,
-        compute="actors"
+        batch_size=4096
     ).take_all()
 
     # 全局聚合统计量
@@ -207,8 +206,7 @@ def _transform_minmaxscaler(ray_dataset, input_cols: list, output_cols: list,
     transformed_dataset = ray_dataset.map_batches(
         transform_batch,
         batch_format="pandas",  # 固定batch_format（遵循工程约束）
-        batch_size=4096,
-        compute="actors"
+        batch_size=4096
     )
 
     return transformed_dataset

@@ -132,8 +132,7 @@ def _fit_standardscaler(ray_dataset, input_cols: list, with_mean: bool, with_std
     batch_stats = ray_dataset.map_batches(
         compute_batch_stats,
         batch_format="pandas",
-        batch_size=4096,
-        compute="actors"
+        batch_size=4096
     ).take_all()
     
     # 全局聚合统计量
@@ -164,8 +163,7 @@ def _fit_standardscaler(ray_dataset, input_cols: list, with_mean: bool, with_std
             variance_stats = ray_dataset.map_batches(
                 compute_variance_batch,
                 batch_format="pandas",
-                batch_size=4096,
-                compute="actors"
+                batch_size=4096
             ).take_all()
             
             total_sum_sq_diff = np.sum([s['sum_sq_diff'] for s in variance_stats], axis=0)
@@ -238,8 +236,7 @@ def _transform_standardscaler(ray_dataset, input_cols: list, output_cols: list,
     transformed_dataset = ray_dataset.map_batches(
         transform_batch,
         batch_format="pandas",  # 固定batch_format（遵循工程约束）
-        batch_size=4096,
-        compute="actors"
+        batch_size=4096
     )
     
     return transformed_dataset

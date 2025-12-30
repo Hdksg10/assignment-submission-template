@@ -11,6 +11,8 @@ Ray StringIndexer算子实现
    - 支持handle_invalid策略：error/skip/keep
 """
 
+import ray
+import ray.data
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List
@@ -142,7 +144,7 @@ def _fit_stringindexer(ray_dataset, input_cols: list) -> Dict[str, Any]:
         collect_categories,
         batch_format="pandas",
         batch_size=4096,
-        compute="actors"
+        compute=ray.data.TaskPoolStrategy()
     ).take_all()
 
     # 合并所有batch的类别集合
@@ -239,8 +241,7 @@ def _transform_stringindexer(ray_dataset, input_cols: list, output_cols: list,
     transformed_dataset = ray_dataset.map_batches(
         transform_batch,
         batch_format="pandas",  # 固定batch_format（遵循工程约束）
-        batch_size=4096,
-        compute="actors"
+        batch_size=4096
     )
 
     return transformed_dataset

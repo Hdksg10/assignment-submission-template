@@ -119,28 +119,36 @@ def _fit_onehotencoder(ray_dataset, input_cols: list) -> Dict[str, Any]:
         Dict包含类别数量信息
     """
 
-    def collect_category_counts(batch: pd.DataFrame) -> Dict[str, Any]:
-        """收集单个batch的类别计数"""
+    def collect_category_counts(batch: pd.DataFrame) -> pd.DataFrame:
+        """收集单个batch的类别计数并返回为DataFrame"""
         category_counts = {}
         for col in input_cols:
             if col in batch.columns:
                 # 计算唯一值数量
                 unique_count = batch[col].nunique()
                 category_counts[col] = unique_count
-        return category_counts
+        # 返回DataFrame而不是dict，以避免Ray Data的格式要求问题
+        return pd.DataFrame([category_counts])
 
     # 收集所有batch的类别计数
-    batch_counts = ray_dataset.map_batches(
+    batch_counts_df = ray_dataset.map_batches(
         collect_category_counts,
         batch_format="pandas",
-        batch_size=4096,
-        compute="actors"
+        batch_size=4096
     ).take_all()
+
+    # 处理返回的DataFrame列表，提取字典
+    batch_counts = []
+    for df in batch_counts_df:
+        if isinstance(df, pd.DataFrame):
+            batch_counts.extend(df.to_dict(orient='records'))
+        elif isinstance(df, dict):
+            batch_counts.append(df)
 
     # 取最大类别数（确保覆盖所有可能类别）
     global_category_counts = {}
     for col in input_cols:
-        max_count = max(batch['category_counts'].get(col, 0) for batch in batch_counts)
+        max_count = max((batch.get(col, 0) for batch in batch_counts), default=0)
         global_category_counts[col] = max_count
 
     return {
@@ -253,8 +261,7 @@ def _transform_onehotencoder(ray_dataset, input_cols: list, output_cols: list,
     transformed_dataset = ray_dataset.map_batches(
         transform_batch,
         batch_format="pandas",  # 固定batch_format（遵循工程约束）
-        batch_size=4096,
-        compute="actors"
+        batch_size=4096
     )
 
     return transformed_dataset
