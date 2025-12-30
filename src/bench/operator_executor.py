@@ -87,9 +87,15 @@ class HighPerformanceOperatorExecutor:
         # Ray算子
         try:
             from engines.ray.operators import (
-                run_standardscaler_with_ray_data as ray_standardscaler
+                run_standardscaler_with_ray_data as ray_standardscaler,
+                run_minmaxscaler_with_ray_data as ray_minmaxscaler,
+                run_stringindexer_with_ray_data as ray_stringindexer,
+                run_onehotencoder_with_ray_data as ray_onehotencoder
             )
             cls.register_operator('ray', 'StandardScaler', ray_standardscaler)
+            cls.register_operator('ray', 'MinMaxScaler', ray_minmaxscaler)
+            cls.register_operator('ray', 'StringIndexer', ray_stringindexer)
+            cls.register_operator('ray', 'OneHotEncoder', ray_onehotencoder)
         except ImportError:
             cls._logger.warning("Ray依赖未安装，跳过注册")
 
