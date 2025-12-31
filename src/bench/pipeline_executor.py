@@ -189,6 +189,8 @@ class HighPerformancePipelineExecutor:
             self.timer.start()
 
         try:
+            from .materialize import force_execute
+            
             # 顺序执行所有算子
             for i, context in enumerate(contexts):
                 operator_func = HighPerformanceOperatorExecutor.get_operator_func(
@@ -201,19 +203,27 @@ class HighPerformancePipelineExecutor:
                 # 否则只构建变换链，最后统一触发
                 if per_step_timing:
                     # 需要persist/cache避免重复计算
+                    step_spec = context.spec
+                    trigger_cols = step_spec.output_cols if step_spec and hasattr(step_spec, 'output_cols') and step_spec.output_cols else []
+                    
                     if self.engine == 'spark' and hasattr(current_df, 'cache'):
                         current_df = current_df.cache()
-                        current_df.count()  # 触发cache
+                        force_execute(current_df, engine=self.engine, cols=trigger_cols)
                     elif self.engine == 'ray' and hasattr(current_df, 'materialize'):
                         current_df = current_df.materialize()
+                        force_execute(current_df, engine=self.engine, cols=trigger_cols)
 
             # 在最后触发一次action（如果还没触发）
             if measure_performance and not per_step_timing:
-                if self.engine == 'spark' and hasattr(current_df, 'count'):
-                    current_df.count()  # 触发整个pipeline的执行
-                elif self.engine == 'ray' and hasattr(current_df, 'materialize'):
-                    current_df = current_df.materialize()
-                    current_df.count()
+                # 获取最后一步的输出列
+                last_context = contexts[-1] if contexts else None
+                if last_context and hasattr(last_context, 'spec'):
+                    step_spec = last_context.spec
+                    trigger_cols = step_spec.output_cols if step_spec and hasattr(step_spec, 'output_cols') and step_spec.output_cols else []
+                else:
+                    trigger_cols = []
+                
+                force_execute(current_df, engine=self.engine, cols=trigger_cols)
 
             if measure_performance:
                 total_elapsed = self.timer.stop()
@@ -268,11 +278,17 @@ class HighPerformancePipelineExecutor:
             current_df = DirectOperatorExecutor.execute_operator(context, current_df)
 
             # 每步都需要persist/materialize + trigger
+            step_spec = context.spec
+            trigger_cols = step_spec.output_cols if step_spec and hasattr(step_spec, 'output_cols') and step_spec.output_cols else []
+            
             if self.engine == 'spark' and hasattr(current_df, 'cache'):
+                from .materialize import force_execute
                 current_df = current_df.cache()
-                current_df.count()  # 触发cache
+                force_execute(current_df, engine=self.engine, cols=trigger_cols)
             elif self.engine == 'ray' and hasattr(current_df, 'materialize'):
+                from .materialize import force_execute
                 current_df = current_df.materialize()
+                force_execute(current_df, engine=self.engine, cols=trigger_cols)
 
             step_elapsed = time.perf_counter() - step_start
 

@@ -17,7 +17,115 @@ from .operator_spec import get_operator_spec, list_operator_names
 from .io import load_csv, save_csv, get_file_info
 from .metrics import ExperimentRunner, save_experiment_result
 from .logger import get_logger, setup_logging
+from .data_ingest import load_input_for_engine, load_input_pandas
 import logging
+
+
+def _is_distributed_mode(args) -> bool:
+    """
+    检测是否为分布式模式（多机集群）
+    
+    Args:
+        args: 命令行参数对象
+    
+    Returns:
+        True 如果是分布式模式，False 否则
+    """
+    # 检查 Spark master
+    spark_master = getattr(args, 'spark_master', None)
+    if spark_master and not spark_master.startswith('local'):
+        return True
+    
+    # 检查 Ray address
+    ray_address = getattr(args, 'ray_address', None)
+    if ray_address is not None:
+        return True
+    
+    return False
+
+
+def _auto_select_io_mode(args) -> str:
+    """
+    根据集群模式自动选择 IO 模式
+    
+    Args:
+        args: 命令行参数对象
+    
+    Returns:
+        IO 模式 ('pandas' 或 'engine')
+    """
+    # 如果用户明确指定了 io_mode，使用用户指定的值
+    if hasattr(args, 'io_mode') and args.io_mode:
+        return args.io_mode
+    
+    # 自动检测：如果是分布式模式，默认使用 engine 模式
+    if _is_distributed_mode(args):
+        return 'engine'
+    else:
+        return 'pandas'
+
+
+def parse_spark_conf(conf_list: list) -> dict:
+    """
+    解析 --spark-conf 参数列表（格式: KEY=VALUE）
+    
+    Args:
+        conf_list: 配置字符串列表，例如 ['spark.executor.memory=4g', 'spark.executor.cores=2']
+    
+    Returns:
+        dict: 配置字典
+    """
+    config = {}
+    for conf_str in conf_list:
+        if '=' not in conf_str:
+            raise ValueError(f"无效的 spark-conf 格式: {conf_str}。应为 KEY=VALUE")
+        key, value = conf_str.split('=', 1)  # 只分割第一个 =
+        config[key.strip()] = value.strip()
+    return config
+
+
+def add_distributed_args(parser: argparse.ArgumentParser) -> None:
+    """
+    为子命令添加分布式集群参数
+    
+    Args:
+        parser: 子命令的参数解析器
+    """
+    # Spark 相关参数
+    spark_group = parser.add_argument_group('Spark 集群配置')
+    spark_group.add_argument('--spark-master',
+                            default=None,
+                            help='Spark Master URL (默认: None，使用 local[*]；多机示例: spark://<master-host>:7077)')
+    spark_group.add_argument('--spark-driver-host',
+                            default=None,
+                            help='Spark Driver 主机地址（多机 client mode 强烈建议手动指定 driver 可达 IP）')
+    spark_group.add_argument('--spark-conf',
+                            action='append',
+                            default=[],
+                            metavar='KEY=VALUE',
+                            help='Spark 配置参数（可重复使用，例如: --spark-conf spark.executor.memory=4g）')
+
+    # Ray 相关参数
+    ray_group = parser.add_argument_group('Ray 集群配置')
+    ray_group.add_argument('--ray-address',
+                          default=None,
+                          help='Ray 集群地址 (默认: None，本地模式；多机示例: auto 或 <head-ip>:6379)')
+    ray_group.add_argument('--ray-namespace',
+                          default='benchmark',
+                          help='Ray 命名空间 (默认: benchmark)')
+    ray_group.add_argument('--ray-runtime-env-json',
+                          default=None,
+                          help='Ray 运行时环境 JSON 字符串（用于打包代码依赖等）')
+
+    # 数据读取模式
+    io_group = parser.add_argument_group('数据读取配置')
+    io_group.add_argument('--io-mode',
+                         choices=['pandas', 'engine'],
+                         default=None,
+                         help='数据读取模式 (默认: 自动选择；多机模式自动使用 engine，单机模式使用 pandas)')
+    io_group.add_argument('--data-path',
+                         default=None,
+                         help='数据文件路径（可选：直接给路径，覆盖 --input；多机时必须是所有节点可访问的共享存储路径）')
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -35,6 +143,14 @@ def create_parser() -> argparse.ArgumentParser:
 
   # 运行高性能管道（推荐）
   python -m src.bench.cli pipeline --engine spark --operators StandardScaler --input data/raw/sample.csv
+
+  # 多机 Spark 集群
+  python -m src.bench.cli run --engine spark --operator StandardScaler --input hdfs:///data/sample.csv \\
+    --spark-master spark://master:7077 --spark-driver-host <driver-ip> --io-mode engine
+
+  # 多机 Ray 集群
+  python -m src.bench.cli run --engine ray --operator StandardScaler --input s3://bucket/data/sample.csv \\
+    --ray-address <head-ip>:6379 --io-mode engine
 
   # 查看可用算子
   python -m src.bench.cli list
@@ -73,6 +189,7 @@ def create_parser() -> argparse.ArgumentParser:
                            help='是否执行预热运行 (默认: True)')
     run_parser.add_argument('--params', type=json.loads, default={},
                            help='额外的算子参数 (JSON格式)')
+    add_distributed_args(run_parser)
 
     # compare 命令
     compare_parser = subparsers.add_parser('compare', help='运行对比测试')
@@ -84,6 +201,7 @@ def create_parser() -> argparse.ArgumentParser:
                                help='输出目录路径 (默认: experiments/reports)')
     compare_parser.add_argument('--repeats', type=int, default=3,
                                help='重复运行次数 (默认: 3)')
+    add_distributed_args(compare_parser)
 
     # list 命令
     list_parser = subparsers.add_parser('list', help='列出可用算子和引擎')
@@ -106,6 +224,7 @@ def create_parser() -> argparse.ArgumentParser:
                                 help='是否执行预热运行 (默认: True)')
     pipeline_parser.add_argument('--params', type=json.loads, default={},
                                 help='算子参数 (JSON格式，key为算子名)')
+    add_distributed_args(pipeline_parser)
 
     return parser
 
@@ -119,10 +238,24 @@ def run_single_experiment(args) -> None:
         logger.info(f"运行算子: {spec.name}")
         logger.info(f"描述: {spec.description}")
 
-        # 加载数据（pandas，用于profile）
-        logger.info(f"加载数据: {args.input}")
-        df = load_csv(args.input)
-        logger.info(f"数据形状: {df.shape}")
+        # 确定数据路径（优先使用 --data-path，否则使用 --input）
+        data_path = getattr(args, 'data_path', None) or args.input
+        
+        # 自动选择 IO 模式（如果用户未指定）
+        io_mode = _auto_select_io_mode(args)
+        is_distributed = _is_distributed_mode(args)
+        
+        # 如果自动选择了 engine 模式，记录日志
+        if not hasattr(args, 'io_mode') or not args.io_mode:
+            logger.info(f"自动选择 IO 模式: {io_mode} (分布式模式: {is_distributed})")
+        
+        # 检查多机模式警告（如果用户明确指定了 pandas 模式）
+        if is_distributed and io_mode == 'pandas':
+            logger.warning(
+                "⚠️  多机模式检测到 io-mode=pandas。"
+                "pandas->createDataFrame 会让 driver 先读全量，且输入文件在 worker 不可见。"
+                "建议使用 --io-mode engine 并使用共享存储路径（NFS/HDFS/S3）。"
+            )
 
         # 合并参数
         operator_params = spec.params.copy()
@@ -132,15 +265,33 @@ def run_single_experiment(args) -> None:
         if args.engine == 'spark':
             from ..engines.spark.session import get_spark
             from ..engines.spark.operators import run_standardscaler
-            from .materialize import materialize_spark
+
+            # 解析 Spark 配置
+            spark_config = {}
+            if hasattr(args, 'spark_conf') and args.spark_conf:
+                spark_config = parse_spark_conf(args.spark_conf)
 
             # 初始化Spark（计时外）
-            spark = get_spark("BenchmarkApp")
+            spark = get_spark(
+                app_name="BenchmarkApp",
+                master=getattr(args, 'spark_master', None),
+                config=spark_config if spark_config else None,
+                driver_host=getattr(args, 'spark_driver_host', None)
+            )
             logger.info("Spark会话已初始化")
 
-            # 转换pandas到Spark DataFrame（计时外）
-            spark_df = spark.createDataFrame(df)
-            logger.info("数据已转换为Spark DataFrame")
+            # 根据 io-mode 选择数据加载方式
+            if io_mode == 'engine':
+                # 引擎原生读取（多机推荐）
+                spark_df = load_input_for_engine('spark', data_path, spark=spark, is_distributed=is_distributed)
+                # 为了 profile，仍然需要 pandas DataFrame（小样本即可）
+                logger.info("使用引擎原生读取，加载小样本用于 profile")
+                df = spark_df.limit(1000).toPandas() if spark_df.count() > 1000 else spark_df.toPandas()
+            else:
+                # pandas 模式（单机）
+                df = load_input_pandas(data_path)
+                spark_df = spark.createDataFrame(df)
+                logger.info("数据已转换为Spark DataFrame")
 
             # 运行算子
             if args.operator == 'StandardScaler':
@@ -151,7 +302,6 @@ def run_single_experiment(args) -> None:
                     dataset_path=args.input,
                     operator_func=run_standardscaler,
                     input_profile_df=df,  # pandas用于profile
-                    materialize_func=materialize_spark,  # 触发执行
                     spark=spark,
                     input_df=spark_df,  # Spark DF作为算子输入
                     spec=spec
@@ -164,15 +314,27 @@ def run_single_experiment(args) -> None:
             import ray.data as rd
             from ..engines.ray.runtime import init_ray
             from ..engines.ray.operators import run_standardscaler
-            from .materialize import materialize_ray
 
             # 初始化Ray（计时外）
-            init_ray()
+            init_ray(
+                address=getattr(args, 'ray_address', None),
+                namespace=getattr(args, 'ray_namespace', 'benchmark'),
+                runtime_env_json=getattr(args, 'ray_runtime_env_json', None)
+            )
             logger.info("Ray运行时已初始化")
 
-            # 转换pandas到Ray Dataset（计时外）
-            ray_ds = rd.from_pandas(df)
-            logger.info("数据已转换为Ray Dataset")
+            # 根据 io-mode 选择数据加载方式
+            if io_mode == 'engine':
+                # 引擎原生读取（多机推荐）
+                ray_ds = load_input_for_engine('ray', data_path, spark=None, is_distributed=is_distributed)
+                # 为了 profile，仍然需要 pandas DataFrame（小样本即可）
+                logger.info("使用引擎原生读取，加载小样本用于 profile")
+                df = ray_ds.limit(1000).to_pandas() if ray_ds.count() > 1000 else ray_ds.to_pandas()
+            else:
+                # pandas 模式（单机）
+                df = load_input_pandas(data_path)
+                ray_ds = rd.from_pandas(df)
+                logger.info("数据已转换为Ray Dataset")
 
             # 运行算子
             if args.operator == 'StandardScaler':
@@ -183,7 +345,6 @@ def run_single_experiment(args) -> None:
                     dataset_path=args.input,
                     operator_func=run_standardscaler,
                     input_profile_df=df,  # pandas用于profile
-                    materialize_func=materialize_ray,  # 触发执行
                     input_df=ray_ds,  # Ray Dataset作为算子输入
                     spec=spec
                 )
@@ -216,7 +377,7 @@ def run_comparison_experiment(args) -> None:
     try:
         logger.info(f"开始对比测试: {args.operator}")
 
-        # 创建临时参数对象用于Spark
+        # 创建临时参数对象用于Spark（继承分布式参数）
         spark_args = argparse.Namespace()
         spark_args.engine = 'spark'
         spark_args.operator = args.operator
@@ -225,8 +386,14 @@ def run_comparison_experiment(args) -> None:
         spark_args.repeats = args.repeats
         spark_args.warmup = True
         spark_args.params = {}
+        # 继承分布式参数
+        spark_args.spark_master = getattr(args, 'spark_master', None)
+        spark_args.spark_driver_host = getattr(args, 'spark_driver_host', None)
+        spark_args.spark_conf = getattr(args, 'spark_conf', [])
+        spark_args.io_mode = getattr(args, 'io_mode', None)  # None 表示自动选择
+        spark_args.data_path = getattr(args, 'data_path', None)
 
-        # 创建临时参数对象用于Ray
+        # 创建临时参数对象用于Ray（继承分布式参数）
         ray_args = argparse.Namespace()
         ray_args.engine = 'ray'
         ray_args.operator = args.operator
@@ -235,6 +402,12 @@ def run_comparison_experiment(args) -> None:
         ray_args.repeats = args.repeats
         ray_args.warmup = True
         ray_args.params = {}
+        # 继承分布式参数
+        ray_args.ray_address = getattr(args, 'ray_address', None)
+        ray_args.ray_namespace = getattr(args, 'ray_namespace', 'benchmark')
+        ray_args.ray_runtime_env_json = getattr(args, 'ray_runtime_env_json', None)
+        ray_args.io_mode = getattr(args, 'io_mode', None)  # None 表示自动选择
+        ray_args.data_path = getattr(args, 'data_path', None)
 
         # 运行Spark实验
         logger.info("运行Spark实验")
@@ -337,10 +510,24 @@ def run_pipeline_experiment(args) -> None:
 
         logger.info(f"运行高性能管道: {' -> '.join(args.operators)}")
 
-        # 加载数据
-        logger.info(f"加载数据: {args.input}")
-        df = load_csv(args.input)
-        logger.info(f"数据形状: {df.shape}")
+        # 确定数据路径和 IO 模式
+        data_path = getattr(args, 'data_path', None) or args.input
+        
+        # 自动选择 IO 模式（如果用户未指定）
+        io_mode = _auto_select_io_mode(args)
+        is_distributed = _is_distributed_mode(args)
+        
+        # 如果自动选择了 engine 模式，记录日志
+        if not hasattr(args, 'io_mode') or not args.io_mode:
+            logger.info(f"自动选择 IO 模式: {io_mode} (分布式模式: {is_distributed})")
+        
+        # 检查多机模式警告（如果用户明确指定了 pandas 模式）
+        if is_distributed and io_mode == 'pandas':
+            logger.warning(
+                "⚠️  多机模式检测到 io-mode=pandas。"
+                "pandas->createDataFrame 会让 driver 先读全量，且输入文件在 worker 不可见。"
+                "建议使用 --io-mode engine 并使用共享存储路径（NFS/HDFS/S3）。"
+            )
 
         # 创建管道配置
         pipeline_config = PipelineConfig.from_operator_names(
@@ -348,23 +535,50 @@ def run_pipeline_experiment(args) -> None:
             engine=args.engine
         )
 
-        # 保存原始pandas DataFrame用于profile
-        pandas_df = df
-
         # 初始化引擎（计时外）
         spark_session = None
         if args.engine == 'spark':
             from ..engines.spark.session import get_spark
-            spark_session = get_spark("PipelineApp")
-            df = spark_session.createDataFrame(df)
-            logger.info("Spark会话已初始化，数据已转换为Spark DataFrame")
+            
+            # 解析 Spark 配置
+            spark_config = {}
+            if hasattr(args, 'spark_conf') and args.spark_conf:
+                spark_config = parse_spark_conf(args.spark_conf)
+            
+            spark_session = get_spark(
+                app_name="PipelineApp",
+                master=getattr(args, 'spark_master', None),
+                config=spark_config if spark_config else None,
+                driver_host=getattr(args, 'spark_driver_host', None)
+            )
+            
+            # 根据 io-mode 选择数据加载方式
+            if io_mode == 'engine':
+                df = load_input_for_engine('spark', data_path, spark=spark_session, is_distributed=is_distributed)
+                logger.info("Spark会话已初始化，使用引擎原生读取")
+            else:
+                pandas_df = load_input_pandas(data_path)
+                df = spark_session.createDataFrame(pandas_df)
+                logger.info("Spark会话已初始化，数据已转换为Spark DataFrame")
+                
         elif args.engine == 'ray':
             from ..engines.ray.runtime import init_ray
-            init_ray()
-            # 对于Ray，使用Ray Dataset（计时外）
-            import ray.data as rd
-            df = rd.from_pandas(df)
-            logger.info("Ray运行时已初始化，数据已转换为Ray Dataset")
+            init_ray(
+                address=getattr(args, 'ray_address', None),
+                namespace=getattr(args, 'ray_namespace', 'benchmark'),
+                runtime_env_json=getattr(args, 'ray_runtime_env_json', None)
+            )
+            
+            # 根据 io-mode 选择数据加载方式
+            if io_mode == 'engine':
+                import ray.data as rd
+                df = load_input_for_engine('ray', data_path, spark=None, is_distributed=is_distributed)
+                logger.info("Ray运行时已初始化，使用引擎原生读取")
+            else:
+                pandas_df = load_input_pandas(data_path)
+                import ray.data as rd
+                df = rd.from_pandas(pandas_df)
+                logger.info("Ray运行时已初始化，数据已转换为Ray Dataset")
 
         # 运行管道实验
         runner = OptimizedPipelineRunner(
