@@ -62,15 +62,15 @@ class MetricsCollector:
         self.end_time: Optional[float] = None
 
     def start_measurement(self) -> None:
-        """开始测量"""
-        self.start_time = time.time()
+        """开始测量（使用 perf_counter 减少微基准噪声）"""
+        self.start_time = time.perf_counter()
 
     def end_measurement(self) -> float:
         """结束测量并返回耗时"""
         if self.start_time is None:
             raise RuntimeError("必须先调用start_measurement()")
 
-        self.end_time = time.time()
+        self.end_time = time.perf_counter()
         elapsed = self.end_time - self.start_time
         return elapsed
 
@@ -127,7 +127,6 @@ class ExperimentRunner:
                       dataset_path: str,
                       operator_func,
                       input_profile_df: pd.DataFrame,
-                      materialize_func,
                       *args,
                       **kwargs) -> ExperimentResult:
         """
@@ -139,12 +138,13 @@ class ExperimentRunner:
             dataset_path: 数据集路径
             operator_func: 算子执行函数
             input_profile_df: 用于获取输入数据行列数的pandas DataFrame（不参与算子执行）
-            materialize_func: 触发分布式执行的函数（在计时区间内调用）
-            *args, **kwargs: 传递给算子函数的参数
+            *args, **kwargs: 传递给算子函数的参数（必须包含 spec）
 
         Returns:
             ExperimentResult: 实验结果
         """
+        from .materialize import force_execute
+        
         experiment_id = self._generate_experiment_id(engine, operator)
         git_commit = self._get_git_commit()
 
@@ -154,12 +154,24 @@ class ExperimentRunner:
         input_rows = input_profile_df.shape[0]
         input_cols = input_profile_df.shape[1]
 
-        # Warm-up run - 必须包含算子执行和materialize
+        # 获取输出列（用于触发执行）
+        spec = kwargs.get('spec')
+        if spec and hasattr(spec, 'output_cols') and spec.output_cols:
+            trigger_cols = spec.output_cols
+        elif spec and hasattr(spec, 'input_cols') and spec.input_cols:
+            # Fallback 到 input_cols（不推荐，但至少能触发）
+            trigger_cols = spec.input_cols
+            self._logger.warning(f"使用 input_cols 作为 trigger_cols（不推荐）")
+        else:
+            trigger_cols = []
+            self._logger.warning(f"无法确定 trigger_cols，可能触发 column pruning")
+
+        # Warm-up run - 必须包含算子执行和 force_execute
         if self.warmup:
             self._logger.info("执行预热运行...")
             try:
                 warmup_output = operator_func(*args, **kwargs)
-                materialize_func(warmup_output)
+                force_execute(warmup_output, engine=engine, cols=trigger_cols)
                 self._logger.info("预热运行完成")
             except Exception as e:
                 self._logger.warning(f"预热运行失败: {e}")
@@ -176,8 +188,8 @@ class ExperimentRunner:
 
             try:
                 output_df = operator_func(*fresh_args, **kwargs)
-                # 在计时区间内触发分布式执行
-                materialize_func(output_df)
+                # 在计时区间内触发分布式执行（依赖输出列的值）
+                force_execute(output_df, engine=engine, cols=trigger_cols)
                 elapsed = self.collector.end_measurement()
 
                 # 推断输出行列数
