@@ -311,9 +311,21 @@ def run_single_experiment(args) -> None:
                 "建议使用 --io-mode engine 并使用共享存储路径（NFS/HDFS/S3）。"
             )
 
-        # 合并参数
+        # 合并和验证参数
         operator_params = spec.params.copy()
-        operator_params.update(args.params)
+        if args.params:
+            # 验证传入的参数
+            for param_name, param_value in args.params.items():
+                logger.info(f"使用自定义参数: {param_name} = {param_value}")
+                # 可以在这里添加更详细的参数验证逻辑
+                if not isinstance(param_name, str):
+                    raise ValueError(f"参数名必须是字符串: {param_name}")
+            operator_params.update(args.params)
+        else:
+            logger.info("使用默认参数配置")
+
+        # 更新spec.params，使算子函数能够访问到用户传入的参数
+        spec.params = operator_params
 
         # 动态导入引擎模块
         if args.engine == 'spark':
