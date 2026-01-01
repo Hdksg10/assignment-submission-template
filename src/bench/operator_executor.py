@@ -74,36 +74,60 @@ class HighPerformanceOperatorExecutor:
 
     @classmethod
     def auto_register_operators(cls) -> None:
-        """自动注册所有算子 - 在模块导入时调用"""
+        """自动注册所有算子 - 在模块导入时调用
+        
+        注意：导入算子模块会触发 engines/*/operators/__init__.py 中的注册代码执行，
+        但为了确保所有算子都被注册，我们在这里也显式注册一次。
+        """
         # Spark算子
         try:
+            # 导入所有Spark算子模块，这会触发 __init__.py 中的注册代码
             from engines.spark.operators import (
-                run_standardscaler as spark_standardscaler,
-                run_minmaxscaler as spark_minmaxscaler,
-                run_stringindexer as spark_stringindexer,
-                run_onehotencoder as spark_onehotencoder
+                run_standardscaler,
+                run_minmaxscaler,
+                run_stringindexer,
+                run_onehotencoder,
+                run_imputer,
+                run_tokenizer,
+                run_hashingtf,
+                run_idf
             )
-            cls.register_operator('spark', 'StandardScaler', spark_standardscaler)
-            cls.register_operator('spark', 'MinMaxScaler', spark_minmaxscaler)
-            cls.register_operator('spark', 'StringIndexer', spark_stringindexer)
-            cls.register_operator('spark', 'OneHotEncoder', spark_onehotencoder)
-        except ImportError:
-            cls._logger.warning("Spark依赖未安装，跳过注册")
+            # 显式注册所有算子（即使 __init__.py 中已经注册，重复注册也是安全的）
+            cls.register_operator('spark', 'StandardScaler', run_standardscaler)
+            cls.register_operator('spark', 'MinMaxScaler', run_minmaxscaler)
+            cls.register_operator('spark', 'StringIndexer', run_stringindexer)
+            cls.register_operator('spark', 'OneHotEncoder', run_onehotencoder)
+            cls.register_operator('spark', 'Imputer', run_imputer)
+            cls.register_operator('spark', 'Tokenizer', run_tokenizer)
+            cls.register_operator('spark', 'HashingTF', run_hashingtf)
+            cls.register_operator('spark', 'IDF', run_idf)
+        except ImportError as e:
+            cls._logger.warning(f"Spark依赖未安装或导入失败，跳过注册: {e}")
 
         # Ray算子
         try:
+            # 导入所有Ray算子模块，这会触发 __init__.py 中的注册代码
             from engines.ray.operators import (
-                run_standardscaler_with_ray_data as ray_standardscaler,
-                run_minmaxscaler_with_ray_data as ray_minmaxscaler,
-                run_stringindexer_with_ray_data as ray_stringindexer,
-                run_onehotencoder_with_ray_data as ray_onehotencoder
+                run_standardscaler_with_ray_data,
+                run_minmaxscaler_with_ray_data,
+                run_stringindexer_with_ray_data,
+                run_onehotencoder_with_ray_data,
+                run_imputer_with_ray_data,
+                run_tokenizer_with_ray_data,
+                run_hashingtf_with_ray_data,
+                run_idf_with_ray_data
             )
-            cls.register_operator('ray', 'StandardScaler', ray_standardscaler)
-            cls.register_operator('ray', 'MinMaxScaler', ray_minmaxscaler)
-            cls.register_operator('ray', 'StringIndexer', ray_stringindexer)
-            cls.register_operator('ray', 'OneHotEncoder', ray_onehotencoder)
-        except ImportError:
-            cls._logger.warning("Ray依赖未安装，跳过注册")
+            # 显式注册所有算子（即使 __init__.py 中已经注册，重复注册也是安全的）
+            cls.register_operator('ray', 'StandardScaler', run_standardscaler_with_ray_data)
+            cls.register_operator('ray', 'MinMaxScaler', run_minmaxscaler_with_ray_data)
+            cls.register_operator('ray', 'StringIndexer', run_stringindexer_with_ray_data)
+            cls.register_operator('ray', 'OneHotEncoder', run_onehotencoder_with_ray_data)
+            cls.register_operator('ray', 'Imputer', run_imputer_with_ray_data)
+            cls.register_operator('ray', 'Tokenizer', run_tokenizer_with_ray_data)
+            cls.register_operator('ray', 'HashingTF', run_hashingtf_with_ray_data)
+            cls.register_operator('ray', 'IDF', run_idf_with_ray_data)
+        except ImportError as e:
+            cls._logger.warning(f"Ray依赖未安装或导入失败，跳过注册: {e}")
 
     @staticmethod
     def create_execution_context(engine: str, operator_name: str, **kwargs) -> OperatorExecutionContext:

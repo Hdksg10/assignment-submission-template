@@ -19,6 +19,16 @@ from .io import load_csv, save_csv, get_file_info
 from .metrics import ExperimentRunner, save_experiment_result
 from .logger import get_logger, setup_logging
 from .data_ingest import load_input_for_engine, load_input_pandas
+from .operator_executor import HighPerformanceOperatorExecutor
+# 导入引擎算子模块以确保注册代码执行
+try:
+    from ..engines.spark.operators import *  # 触发 __init__.py 中的注册
+except ImportError:
+    pass
+try:
+    from ..engines.ray.operators import *  # 触发 __init__.py 中的注册
+except ImportError:
+    pass
 import logging
 
 
@@ -308,7 +318,6 @@ def run_single_experiment(args) -> None:
         # 动态导入引擎模块
         if args.engine == 'spark':
             from ..engines.spark.session import get_spark
-            from ..engines.spark.operators import run_standardscaler
 
             # 解析 Spark 配置
             spark_config = {}
@@ -341,27 +350,27 @@ def run_single_experiment(args) -> None:
                 spark_df = spark.createDataFrame(df)
                 logger.info("数据已转换为Spark DataFrame")
 
+            # 获取算子执行函数
+            operator_func = HighPerformanceOperatorExecutor.get_operator_func(args.engine, args.operator)
+            logger.info(f"已获取算子函数: {args.operator}")
+
             # 运行算子
-            if args.operator == 'StandardScaler':
-                runner = ExperimentRunner(repeats=args.repeats, warmup=args.warmup)
-                result = runner.run_experiment(
-                    engine=args.engine,
-                    operator=args.operator,
-                    dataset_path=args.input,
-                    operator_func=run_standardscaler,
-                    input_profile_df=df,  # pandas用于profile
-                    spark=spark,
-                    input_df=spark_df,  # Spark DF作为算子输入
-                    spec=spec
-                )
-            else:
-                raise ValueError(f"不支持的算子: {args.operator}")
+            runner = ExperimentRunner(repeats=args.repeats, warmup=args.warmup)
+            result = runner.run_experiment(
+                engine=args.engine,
+                operator=args.operator,
+                dataset_path=args.input,
+                operator_func=operator_func,
+                input_profile_df=df,  # pandas用于profile
+                spark=spark,
+                input_df=spark_df,  # Spark DF作为算子输入
+                spec=spec
+            )
 
         elif args.engine == 'ray':
             import ray
             import ray.data as rd
             from ..engines.ray.runtime import init_ray
-            from ..engines.ray.operators import run_standardscaler
 
             # 初始化Ray（计时外）
             init_ray(
@@ -384,20 +393,21 @@ def run_single_experiment(args) -> None:
                 ray_ds = rd.from_pandas(df)
                 logger.info("数据已转换为Ray Dataset")
 
+            # 获取算子执行函数
+            operator_func = HighPerformanceOperatorExecutor.get_operator_func(args.engine, args.operator)
+            logger.info(f"已获取算子函数: {args.operator}")
+
             # 运行算子
-            if args.operator == 'StandardScaler':
-                runner = ExperimentRunner(repeats=args.repeats, warmup=args.warmup)
-                result = runner.run_experiment(
-                    engine=args.engine,
-                    operator=args.operator,
-                    dataset_path=args.input,
-                    operator_func=run_standardscaler,
-                    input_profile_df=df,  # pandas用于profile
-                    input_df=ray_ds,  # Ray Dataset作为算子输入
-                    spec=spec
-                )
-            else:
-                raise ValueError(f"不支持的算子: {args.operator}")
+            runner = ExperimentRunner(repeats=args.repeats, warmup=args.warmup)
+            result = runner.run_experiment(
+                engine=args.engine,
+                operator=args.operator,
+                dataset_path=args.input,
+                operator_func=operator_func,
+                input_profile_df=df,  # pandas用于profile
+                ray_dataset=ray_ds,  # Ray Dataset作为算子输入（参数名必须匹配函数签名）
+                spec=spec
+            )
 
         # 保存结果
         output_path = Path(args.output) / f"{result.experiment_id}.json"
