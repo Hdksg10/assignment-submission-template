@@ -243,6 +243,8 @@ def create_parser() -> argparse.ArgumentParser:
                            help='是否执行预热运行 (默认: True)')
     run_parser.add_argument('--params', type=json.loads, default={},
                            help='额外的算子参数 (JSON格式)')
+    run_parser.add_argument('--full-compute', action='store_true', default=False,
+                           help='使用全量数据进行 profile 而非小样本（默认: False，使用 limit(1000) 小样本）')
     add_distributed_args(run_parser)
 
     # compare 命令
@@ -255,6 +257,8 @@ def create_parser() -> argparse.ArgumentParser:
                                help='输出目录路径 (默认: experiments/reports)')
     compare_parser.add_argument('--repeats', type=int, default=3,
                                help='重复运行次数 (默认: 3)')
+    compare_parser.add_argument('--full-compute', action='store_true', default=False,
+                               help='使用全量数据进行 profile 而非小样本（默认: False，使用 limit(1000) 小样本）')
     add_distributed_args(compare_parser)
 
     # list 命令
@@ -278,6 +282,8 @@ def create_parser() -> argparse.ArgumentParser:
                                 help='是否执行预热运行 (默认: True)')
     pipeline_parser.add_argument('--params', type=json.loads, default={},
                                 help='算子参数 (JSON格式，key为算子名)')
+    pipeline_parser.add_argument('--full-compute', action='store_true', default=False,
+                                help='使用全量数据进行 profile 而非小样本（默认: False，使用 limit(1000) 小样本）')
     add_distributed_args(pipeline_parser)
 
     return parser
@@ -353,9 +359,14 @@ def run_single_experiment(args) -> None:
             if io_mode == 'engine':
                 # 引擎原生读取（多机推荐）
                 spark_df = load_input_for_engine('spark', data_path, spark=spark, is_distributed=is_distributed)
-                # 为了 profile，仍然需要 pandas DataFrame（小样本即可）
-                logger.info("使用引擎原生读取，加载小样本用于 profile")
-                df = spark_df.limit(1000).toPandas() if spark_df.count() > 1000 else spark_df.toPandas()
+                # 为了 profile，根据 --full-compute 选项决定是否使用全量数据
+                full_compute = getattr(args, 'full_compute', False)
+                if full_compute:
+                    logger.info("使用引擎原生读取，加载全量数据用于 profile")
+                    df = spark_df.toPandas()
+                else:
+                    logger.info("使用引擎原生读取，加载小样本用于 profile")
+                    df = spark_df.limit(1000).toPandas() if spark_df.count() > 1000 else spark_df.toPandas()
             else:
                 # pandas 模式（单机）
                 df = load_input_pandas(data_path)
@@ -396,9 +407,14 @@ def run_single_experiment(args) -> None:
             if io_mode == 'engine':
                 # 引擎原生读取（多机推荐）
                 ray_ds = load_input_for_engine('ray', data_path, spark=None, is_distributed=is_distributed)
-                # 为了 profile，仍然需要 pandas DataFrame（小样本即可）
-                logger.info("使用引擎原生读取，加载小样本用于 profile")
-                df = ray_ds.limit(1000).to_pandas() if ray_ds.count() > 1000 else ray_ds.to_pandas()
+                # 为了 profile，根据 --full-compute 选项决定是否使用全量数据
+                full_compute = getattr(args, 'full_compute', False)
+                if full_compute:
+                    logger.info("使用引擎原生读取，加载全量数据用于 profile")
+                    df = ray_ds.to_pandas()
+                else:
+                    logger.info("使用引擎原生读取，加载小样本用于 profile")
+                    df = ray_ds.limit(1000).to_pandas() if ray_ds.count() > 1000 else ray_ds.to_pandas()
             else:
                 # pandas 模式（单机）
                 df = load_input_pandas(data_path)
@@ -462,6 +478,7 @@ def run_comparison_experiment(args) -> None:
         spark_args.spark_conf = getattr(args, 'spark_conf', [])
         spark_args.io_mode = getattr(args, 'io_mode', None)  # None 表示自动选择
         spark_args.data_path = getattr(args, 'data_path', None)
+        spark_args.full_compute = getattr(args, 'full_compute', False)
 
         # 创建临时参数对象用于Ray（继承分布式参数）
         ray_args = argparse.Namespace()
@@ -478,6 +495,7 @@ def run_comparison_experiment(args) -> None:
         ray_args.ray_runtime_env_json = getattr(args, 'ray_runtime_env_json', None)
         ray_args.io_mode = getattr(args, 'io_mode', None)  # None 表示自动选择
         ray_args.data_path = getattr(args, 'data_path', None)
+        ray_args.full_compute = getattr(args, 'full_compute', False)
 
         # 运行Spark实验
         logger.info("运行Spark实验")
