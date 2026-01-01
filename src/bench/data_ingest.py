@@ -131,6 +131,24 @@ def load_input_for_engine(engine: str, path: str, spark=None, is_distributed: bo
             header=True,
             inferSchema=True
         )
+        
+        # 对 category 和 label 列进行类型转换（如果存在）
+        from pyspark.sql.functions import col
+        from pyspark.sql.types import IntegerType
+        
+        for col_name in ["category", "label"]:
+            if col_name in df.columns:
+                # 检查当前列的类型
+                current_type = dict(df.dtypes)[col_name]
+                # 如果是字符串类型，尝试转换为整数
+                # Spark的dtypes返回格式为 "string" 或 "StringType()"
+                if current_type == "string" or "string" in current_type.lower():
+                    try:
+                        df = df.withColumn(col_name, col(col_name).cast(IntegerType()))
+                        logger.info(f"已将列 '{col_name}' 从字符串类型转换为整数类型")
+                    except Exception as e:
+                        logger.warning(f"无法将列 '{col_name}' 转换为整数类型: {e}，保持原类型")
+        
         logger.info(f"Spark DataFrame 创建成功，行数: {df.count()}")
         return df
         
@@ -140,6 +158,36 @@ def load_input_for_engine(engine: str, path: str, spark=None, is_distributed: bo
         logger.info(f"使用 Ray 原生读取: {path}")
         # 使用 Ray 原生读取，支持分布式文件系统
         dataset = rd.read_csv(path)
+        
+        # 对 category 和 label 列进行类型转换（如果存在）
+        # 通过采样检查列是否存在及其类型
+        try:
+            sample = dataset.take(1)
+            if sample:
+                sample_dict = sample[0]
+                for col_name in ["category", "label"]:
+                    if col_name in sample_dict:
+                        # 检查当前值的类型
+                        current_value = sample_dict[col_name]
+                        current_type = type(current_value).__name__.lower()
+                        
+                        # 如果是字符串类型，尝试转换为整数
+                        if "str" in current_type or isinstance(current_value, str):
+                            def convert_to_int(batch, col=col_name):
+                                """将指定列转换为整数类型"""
+                                if col in batch.columns:
+                                    # 尝试转换为整数，无法转换的值设为NaN
+                                    batch[col] = pd.to_numeric(batch[col], errors='coerce').astype('Int64')
+                                return batch
+                            
+                            try:
+                                dataset = dataset.map_batches(convert_to_int, batch_format="pandas")
+                                logger.info(f"已将列 '{col_name}' 从字符串类型转换为整数类型")
+                            except Exception as e:
+                                logger.warning(f"无法将列 '{col_name}' 转换为整数类型: {e}，保持原类型")
+        except Exception as e:
+            logger.warning(f"检查列类型时出错: {e}，跳过类型转换")
+        
         logger.info(f"Ray Dataset 创建成功，行数: {dataset.count()}")
         return dataset
         
