@@ -7,6 +7,7 @@
 import argparse
 import sys
 import time
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any
 import pandas as pd
@@ -19,6 +20,49 @@ from .metrics import ExperimentRunner, save_experiment_result
 from .logger import get_logger, setup_logging
 from .data_ingest import load_input_for_engine, load_input_pandas
 import logging
+
+
+def _sanitize_spark_app_name(name: str, max_len: int = 80) -> str:
+    """
+    清理 Spark 应用名称，仅允许 [0-9A-Za-z._-] 字符
+    
+    Args:
+        name: 原始应用名称
+        max_len: 最大长度限制（默认 80）
+    
+    Returns:
+        清理后的应用名称，如果为空则返回 "BenchmarkApp"
+    """
+    if not name:
+        return "BenchmarkApp"
+    
+    # 替换不允许的字符为下划线
+    cleaned = re.sub(r"[^0-9A-Za-z._-]+", "_", name)
+    # 合并连续的下划线
+    cleaned = re.sub(r"_+", "_", cleaned)
+    # 去除首尾下划线
+    cleaned = cleaned.strip("_")
+    # 截断到最大长度
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len]
+    # 如果清理后为空，返回默认值
+    if not cleaned:
+        return "BenchmarkApp"
+    
+    return cleaned
+
+
+def _spark_app_name_for_run(operator_name: str) -> str:
+    """
+    为 run 命令生成 Spark 应用名称
+    
+    Args:
+        operator_name: 算子名称
+    
+    Returns:
+        清理后的应用名称，格式为 BenchmarkApp-{operator_name}
+    """
+    return _sanitize_spark_app_name(f"BenchmarkApp-{operator_name}")
 
 
 def _is_distributed_mode(args) -> bool:
@@ -181,8 +225,8 @@ def create_parser() -> argparse.ArgumentParser:
                            help='算子名称')
     run_parser.add_argument('--input', required=True,
                            help='输入数据文件路径')
-    run_parser.add_argument('--output', required=True,
-                           help='输出目录路径')
+    run_parser.add_argument('--output', default='experiments/runs/',
+                           help='输出目录路径 (默认: experiments/runs/)')
     run_parser.add_argument('--repeats', type=int, default=3,
                            help='重复运行次数 (默认: 3)')
     run_parser.add_argument('--warmup', action='store_true', default=True,
@@ -216,8 +260,8 @@ def create_parser() -> argparse.ArgumentParser:
                                 help='算子名称列表，按顺序执行')
     pipeline_parser.add_argument('--input', required=True,
                                 help='输入数据文件路径')
-    pipeline_parser.add_argument('--output', required=True,
-                                help='输出目录路径')
+    pipeline_parser.add_argument('--output', default='experiments/runs/',
+                                help='输出目录路径 (默认: experiments/runs/)')
     pipeline_parser.add_argument('--repeats', type=int, default=3,
                                 help='重复运行次数 (默认: 3)')
     pipeline_parser.add_argument('--warmup', action='store_true', default=True,
@@ -271,9 +315,13 @@ def run_single_experiment(args) -> None:
             if hasattr(args, 'spark_conf') and args.spark_conf:
                 spark_config = parse_spark_conf(args.spark_conf)
 
+            # 生成并清理 Spark 应用名称
+            spark_app_name = _spark_app_name_for_run(spec.name)
+            logger.info(f"Spark app name: {spark_app_name}")
+
             # 初始化Spark（计时外）
             spark = get_spark(
-                app_name="BenchmarkApp",
+                app_name=spark_app_name,
                 master=getattr(args, 'spark_master', None),
                 config=spark_config if spark_config else None,
                 driver_host=getattr(args, 'spark_driver_host', None)
