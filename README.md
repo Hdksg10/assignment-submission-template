@@ -104,7 +104,7 @@
 
 ## 研究内容
 
-通过对比分析Ray Data与Spark MLlib在机器学习数据预处理（如标准化、归一化、特 征编码等）算子上的实现机制与性能差异，探究Ray和Spark的差异。
+通过对比分析Ray Data与Spark MLlib在机器学习数据预处理（如标准化、归一化、特征编码等）算子上的实现机制与性能差异，探究Ray和Spark的差异。
 
 
 
@@ -138,21 +138,92 @@
 
 | 框架名称     | 版本   | 部署节点                             | 服务端口  |
 | :----------- | :----- | :----------------------------------- | :-------- |
-| Hadoop HDFS  | 3.3.6  | ecnu01(NameNode) ecnu02/03(DataNode) | 9870 |
-| Apache Spark | 3.5.7  | ecnu01(Master) ecnu02/03(Worker)     | 8080 |
-| Ray          | 2.52.1 | ecnu01(Head) ecnu02/03(Worker)       | 8265 |
+| Hadoop HDFS  | 3.3.6  | ecnu01(NameNode) ecnu02/03(DataNode) | 9000/9870 |
+| Apache Spark | 3.5.7  | ecnu01(Master) ecnu02/03(Worker)     | 7077/8080 |
+| Ray          | 2.52.1 | ecnu01(Head) ecnu02/03(Worker)       | 6379/8265 |
 
 
 
 ### 实验负载
 
-详细描述使用的数据集和工作负载。
+- #### 数据集
+
+| 名称            | 数据集描述                                                   |
+| :-------------- | :----------------------------------------------------------- |
+| 20newsgroups    | 包含约 2 万篇新闻组文章，分为 20 个类别，常用于文本分类任务。 |
+| ag_news         | 新闻文本数据集，包含四类新闻（世界、体育、商业、科技），每类约 3 万条样本，适用于多分类文本任务。 |
+| yelp_polarity   | Yelp 评论数据集，包含正面和负面两类评论，用于二分类情感分析任务。 |
+| THUCNews        | 中文新闻文本数据集，包含数十万条新闻，涵盖多种类别，用于中文文本分类研究。 |
+| Amazon Polarity | 亚马逊商品评论数据集，分为正负极性两类，适合进行情感分析和二分类模型训练。 |
+| higgs           | 高能物理实验产生的数据集，包含 28 个特征，用于二分类任务（信号与背景事件）。 |
+| Avazu_x1        | 广告点击率预测数据集，包含用户行为和广告特征，用于大规模二分类预测任务。 |
+
+
+
+* #### 工作负载
+
+| 名称                     | 工作负载描述         |
+| :----------------------- | :------------------- |
+| 对label进行OneHotEncoder | 对标签进行独热编码   |
+| 对特征进行StandardScaler | 对特征进行标准化处理 |
+| 对特征进行MinMaxScaler   | 对特征进行归一化处理 |
 
 
 
 ### 实验步骤
 
-列出执行实验的关键步骤，并对关键步骤进行截图，如 MapReduce / Spark / Flink 部署成功后的进程信息、作业执行成功的信息等，**截图能够通过显示用户账号等个性化信息佐证实验的真实性**。
+#### 一、基础环境准备
+
+**准备三台服务器（ecnu01, ecnu02, ecnu03）**
+
+- **部署Hadoop HDFS，设置ecnu01为NameNode，ecnu02和ecnu03为DataNode**
+
+- **部署Apache Spark集群，设置ecnu01为Master，ecnu02和ecnu03为Worker**
+
+**通过jps查看进程，验证是否成功启动服务**
+
+![image-20260102172738022](assets/image-20260102172738022.png)
+
+<center>主节点</center>
+
+![image-20260102172951263](assets/image-20260102172951263.png)
+
+<center>从节点</center>
+
+- **部署Ray集群，设置ecnu01为Head，ecnu02和ecnu03为Worker**
+
+<img src="assets/image-20260102173541237.png" alt="image-20260102173541237" style="zoom:50%;" />
+
+<center>Ray Dashboard</center>
+
+
+
+#### 二、数据准备
+
+- **下载并预处理所需数据集，确保数据格式符合实验要求**
+- **将数据上传至HDFS，确保Spark和Ray能够访问数据**
+
+![image-20260102174333102](assets/image-20260102174333102.png)
+
+
+
+#### 三、实验执行
+
+- **在Spark集群上运行预处理算子，记录执行时间和资源使用情况**
+
+```shell
+python -m src.bench.cli run --engine spark --operator OneHotEncoder --input hdfs:////usr/root/data/large/20newsgroups.csv --params '{"drop_last": true, "input_cols": ["category"], "handle_invalid":"keep"}' --io-mode engine --spark-master spark://ecnu01:7077 --spark-driver-host 172.27.117.169 --repeats 10
+```
+
+<img src="assets/image-20260102175025099.png" alt="image-20260102175025099" style="zoom:50%;" />
+
+- **在Ray集群上运行相同的预处理算子，记录执行时间和资源使用情况。**
+
+```
+python -m src.bench.cli run --engine ray --operator OneHotEncoder --input hdfs://ecnu01:9000/usr/root/data/large/20newsgroups.csv --params '{"input_cols": ["category"], "output_cols": ["category"]}' --io-mode engine --ray-address ecnu01:6379 --repeats 10
+```
+
+![image-20260102175341664](assets/image-20260102175341664.png)
 
 
 
@@ -160,14 +231,91 @@
 
 使用表格和图表直观呈现结果，并解释结果背后的原因。
 
+<img src="assets/微信图片_20260102164947_175_787.png" alt="微信图片_20260102164947_175_787" style="zoom:50%;" />
+
+<center>OneHotEncoder 在 Ray 与 Spark MLlib 上的性能对比</center>
+
+- **Spark MLlib 在小到中等规模数据上的性能优势主要来自其对特征工程算子的高度系统级优化。**
+
+Spark MLlib 的 OneHotEncoder 是原生实现于 JVM 生态中的核心算子，依托 Tungsten 内存管理、向量化执行以及对稀疏向量的专门优化，在执行过程中能够有效减少内存拷贝和对象创建的开销。同时，Spark 采用以 DAG 为核心的批处理执行模型，使得多个 transformation 可以在同一执行计划中被高效调度和融合，避免了频繁的任务调度与进程间通信。相比之下，Ray 需要通过 Python 层进行任务拆分与调度，并依赖 object store 进行数据传递，这些额外的系统开销在数据规模较小时难以被计算本身所掩盖，从而导致 Spark 在小规模和中等规模数据上表现出更低的总执行时间和更快的单次操作速度。
+
+- **在大规模数据场景下，Ray 之所以能够追平甚至略微超过 Spark，主要是因为其并行调度与执行模型在计算主导阶段逐渐显现优势。**
+
+当数据规模扩大到 Amazon Polarity 这类级别时，OneHot 编码本身的计算与内存访问成本成为主要瓶颈，框架层面的调度开销被显著摊薄。Ray 的任务和 Actor 模型允许更细粒度且灵活的并行执行，使得计算资源能够被充分利用，而其分布式对象存储在大数据吞吐场景下也具备良好的扩展性。与此同时，Spark 在处理极高维度、超大规模稀疏特征时，往往会面临更明显的 Shuffle、序列化以及 JVM 垃圾回收压力，从而削弱了其原本在算子级优化上的优势。因此，在超大规模数据条件下，Ray 能够逐步缩小与 Spark 的性能差距，甚至在部分场景中实现略微领先。
+
+
+
+<img src="assets/微信图片_20260102164949_176_787.png" alt="微信图片_20260102164949_176_787" style="zoom:50%;" />
+
+<center>OneHotEncoder 在 Ray 与 Spark MLlib 上的资源使用特征</center>
+
+- **Ray在中、大规模数据上CPU利用率明显更高**
+
+Ray 在 OneHot 编码过程中采用了更细粒度的任务并行模型，会将数据拆分为多个独立的 task 或 actor 并行执行，从系统层面鼓励更积极地“吃满”CPU 资源。因此，在中等和大规模数据集上，Ray 能够同时调度更多计算任务，使得峰值 CPU 使用率显著高于 Spark。这种设计有利于缩短整体 wall-clock time，但代价是单节点或单 executor 上的 CPU 峰值更高。
+
+相比之下，Spark MLlib 的执行模型更偏向批处理与算子融合，虽然整体吞吐率高，但在部分阶段（如等待 Shuffle、内存回收或 Stage 切换）CPU 会出现空闲，从而在监控指标上表现为较低的峰值 CPU 使用率，尤其在 yelp_polarity 这类中等规模任务中更为明显。
+
+- **Ray 在小 / 中规模下内存占用略高，大规模下与 Spark 收敛**
+
+Ray 的内存使用在小到中等规模数据上普遍略高，主要源于其 分布式对象存储和任务间数据传递机制。OneHot 编码过程中，中间结果往往以对象的形式暂存于内存中，这会带来额外的内存占用。而 Spark MLlib 更倾向于在 JVM 内部以紧凑的稀疏向量结构表示中间结果，并通过流水线方式快速消费这些数据，从而在小规模任务中展现出更好的内存效率。
+
+然而，当数据规模上升至 Amazon Polarity 级别时，OneHot 编码本身产生的高维稀疏特征成为内存占用的主导因素，无论是 Ray 还是 Spark，都必须为大规模特征矩阵分配接近的内存空间。因此，两者的峰值内存使用率在大规模数据下趋于一致，框架层面的内存管理差异被数据本身的规模效应所掩盖。
+
 
 
 ### 结论
 
-总结研究的主要发现。
+| 算子           | Spark MLlib 是否内置   | Ray Data 是否内置                           | 备注                                                         |
+| -------------- | ---------------------- | ------------------------------------------- | ------------------------------------------------------------ |
+| StandardScaler | 是                     | 是                                          | 固定为$ ((x-\bar{x})/s)$，不提供 `with_mean/with_std` 开关   |
+| MinMaxScaler   | 是（支持 `min/max`）   | 是                                          | 固定缩放到 ([0,1])，不支持任意 ([min,max])                   |
+| StringIndexer  | 是                     | OrdinalEncoder/LabelEncoder                 | OrdinalEncoder 对“未见值”编码为 NaN，语义与 `error/skip/keep` 不同 |
+| OneHotEncoder  | 是                     | 是                                          |                                                              |
+| Imputer        | 是（mean/median/mode） | 是（SimpleImputer）                         | 提供 `mean/most_frequent` 等策略，未覆盖 Spark 的 `median` 语义 |
+| Tokenizer      | 是                     | 否（通常用 `map_batches` 自写）             |                                                              |
+| HashingTF      | 是                     | 否（近似：FeatureHasher/HashingVectorizer） | FeatureHasher 不支持稀疏矩阵                                 |
+| IDF            | 是                     | 否                                          |                                                              |
+
+#### Spark MLlib vs Ray Data：扩展算子难易程度讨论
+
+#### 接口与编程语言
+
+##### Spark MLlib：基于 Pipeline 的标准化架构
+
+Spark MLlib 采用统一的 **Estimator-Transformer** 抽象模型，构建了高度规范的算子扩展体系。
+
+* **设计模式**：所有扩展算子必须适配 `fit()` 与 `transform()` 接口，并通过 `Param` 与 `ParamMap` 实现参数的强类型管理。这种设计确保了自定义算子能够无缝集成至 `Pipeline` 流水线中。
+* **语言约束**：若追求极致的执行效率，通常需使用 **Scala/Java** 在 JVM 原生侧实现逻辑；若采用 **PySpark** 开发，算子逻辑往往会涉及 Python UDF 的序列化路径，产生跨进程通信开销。
+
+##### Ray Data：基于分布式原语的灵活架构
+
+Ray Data 提供了两条并行的扩展路径，侧重于 Python 生态的工程灵活性。
+
+* **函数式/类扩展**：开发者可通过 `Dataset.map_batches()` 直接定义批处理逻辑。其中，纯函数映射为 **Stateless Tasks**（无状态任务），而类实例则映射为 **Stateful Actors**（有状态参与者）。
+* **抽象类扩展**：通过继承 `Preprocessor` 基类实现 `fit/transform` 逻辑。其优势在于支持在转换阶段进行细粒度的资源配置（如显式声明 `num_cpus`、`memory` 或 `concurrency` 等实验性参数）。
+* **数据表示**：编程语言深度绑定 **Python**，支持通过 NumPy、pandas 或 Apache Arrow 等高性能批格式优化数据表示。
+
+#### 性能（内置 vs 自写）
+
+- **Spark（自写算子性能特征）**：
+  - 使用内置 DataFrame/SQL 表达式时，执行主要在 executor JVM 内完成，通常优于 Python UDF 路径；并且官方与工程实践都强调尽量用内置函数以避免 Python 侧序列化/反序列化开销。
+- **Ray（自写算子性能特征）**：
+  - `map_batches()` 面向批处理，易通过向量化计算库（如 NumPy/pandas）提升计算吞吐。其 Task/Actor 的执行形态天然适配大规模机器学习的预处理与推理工作负载。
+
+#### 生态成熟度与覆盖面
+
+- **Spark MLlib**：特征工程算子覆盖面更完整且长期稳定，特别是针对文本处理链路的 **Tokenizer / HashingTF / IDF (TF-IDF)** 等组件。
+- **Ray Data**：内置 preprocessors 主要覆盖常见的表格类缩放、编码、缺失值处理（如 StandardScaler/MinMaxScaler/OneHotEncoder/SimpleImputer/LabelEncoder/OrdinalEncoder 等）。
+  但对 **TF-IDF / IDF** 这类经典文本统计链路，官方生态仍存在“希望提供 preprocessor”的需求讨论，意味着工程上更常见的做法是基于 `map_batches` 或自定义 Preprocessor 自建。
 
 
 
 ### 分工
 
-尽可能详细地写出每个人的具体工作和贡献度，并按贡献度大小进行排序。
+吴冕志：整体框架搭建，算子实现，算子测试
+
+杭东升：算子实现，算子测试
+
+朱晨雷：服务器环境搭建，算子实现，文档撰写
+
+刘永哲：算子实现，文档撰写
