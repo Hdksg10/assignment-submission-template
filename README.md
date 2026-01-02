@@ -139,7 +139,7 @@
 | 框架名称     | 版本   | 部署节点                             | 服务端口  |
 | :----------- | :----- | :----------------------------------- | :-------- |
 | Hadoop HDFS  | 3.3.6  | ecnu01(NameNode) ecnu02/03(DataNode) | 9870 |
-| Apache Spark | 3.5.7  | ecnu01(Master) ecnu02/03(Worker)     | 7077 |
+| Apache Spark | 3.5.7  | ecnu01(Master) ecnu02/03(Worker)     | 8080 |
 | Ray          | 2.52.1 | ecnu01(Head) ecnu02/03(Worker)       | 8265 |
 
 
