@@ -229,11 +229,18 @@ python -m src.bench.cli run --engine ray --operator OneHotEncoder --input hdfs:/
 
 ### 实验结果与分析
 
-使用表格和图表直观呈现结果，并解释结果背后的原因。
+#### 采集的数据指标
+- 端到端运行时间/总时间：从提交作业到结束的总时间，在此期间我们会多次运行算子
+- 算子内时间：Spark/Ray面板中报告的算子执行阶段中实际在算子内执行的部分时间
+- CPU/RAM使用率：通过Ray-Prometheus获取的机器在过去一段时间内的资源使用率，我们选取集群内所有机器峰值的平均值
+
+#### OneHotEncoder：数据集行数的影响
 
 <img src="assets/微信图片_20260102164947_175_787.png" alt="微信图片_20260102164947_175_787" style="zoom:50%;" />
 
 <center>OneHotEncoder 在 Ray 与 Spark MLlib 上的性能对比</center>
+
+我们观察到在小规模数据集上，Spark MLlib显著快于Ray Data中的同类算子，但随着数据集规模的增加，两者相差不大，说明此时达到了其它瓶颈（如网络）
 
 - **Spark MLlib 在小到中等规模数据上的性能优势主要来自其对特征工程算子的高度系统级优化。**
 
@@ -261,8 +268,24 @@ Ray 的内存使用在小到中等规模数据上普遍略高，主要源于其 
 
 然而，当数据规模上升至 Amazon Polarity 级别时，OneHot 编码本身产生的高维稀疏特征成为内存占用的主导因素，无论是 Ray 还是 Spark，都必须为大规模特征矩阵分配接近的内存空间。因此，两者的峰值内存使用率在大规模数据下趋于一致，框架层面的内存管理差异被数据本身的规模效应所掩盖。
 
+#### 数据集列数的影响：MinMaxScaler和StandardScaler
 
+数据集规模除了数据量（行数）的变化外，数据列数（维度）也会发生变化，我们在Avazu_x1数据集上对处理不同维度的数据（2，8，16）下，Ray Data和 Spark Mllib中 MinMaxScaler与StandardScaler的性能进行了实验和比较。
 
+![image-sc](assets/image-time-sc.png)
+
+我们可以观察到，在维度较小时，Spark的执行效率要高于Ray，而随着维度的增加，Ray的效率实现了反超。
+
+这是由于Spark Mllib中StandardScaler算子在处理多个列时，需要先通过VectorAssembler进行组装，随着列数的增加，在这一阶段的开销逐渐拖累Spark的算子执行效率。
+
+![image-sc](assets/image-res-sc.png)
+
+在硬件资源使用上，我们观测到与OneHotEncoder中相似的结果，Ray的CPU和内存占用率都要高于Spark。
+
+上文中的数据来自于对StandardScaler算子的测量，MinMaxScaler与其类似，如下图所示。
+
+![image-mc](assets/image-time-mc.png)
+![image-mc](assets/image-res-mc.png)
 ### 结论
 
 | 算子           | Spark MLlib 是否内置   | Ray Data 是否内置                           | 备注                                                         |
@@ -308,7 +331,8 @@ Ray Data 提供了两条并行的扩展路径，侧重于 Python 生态的工程
 - **Ray Data**：内置 preprocessors 主要覆盖常见的表格类缩放、编码、缺失值处理（如 StandardScaler/MinMaxScaler/OneHotEncoder/SimpleImputer/LabelEncoder/OrdinalEncoder 等）。
   但对 **TF-IDF / IDF** 这类经典文本统计链路，官方生态仍存在“希望提供 preprocessor”的需求讨论，意味着工程上更常见的做法是基于 `map_batches` 或自定义 Preprocessor 自建。
 
-
+#### Spark MLlib vs Ray Data：算子性能讨论
+在小/中规模或低维特征场景下Spark MLlib 更占优，这是因为算子内部开销更低，且 VectorAssembler 开销在低维时较小，端到端更快。而在高维特征场景：Ray 的端到端扩展性更好，其开销随特征数线性增长，Ray 的算子内部开销与总时长增长更平滑；Spark 因为VectorAssembler 等组装成本的原因，开销上升更快，导致性能不如Ray。在处理超大规模数据集时（如 Amazon Polarity），二者之间的差距较小，此时端到端时间更多受系统瓶颈/物化与序列化等影响，框架差异被部分抹平；此时选型可能更多取决于生态、易用性与运维而非纯性能。
 
 ### 分工
 
