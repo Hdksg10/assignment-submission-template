@@ -283,6 +283,15 @@ Ray 的内存使用在小到中等规模数据上普遍略高，主要源于其 
 
 然而，当数据规模上升至 Amazon Polarity 级别时，OneHot 编码本身产生的高维稀疏特征成为内存占用的主导因素，无论是 Ray 还是 Spark，都必须为大规模特征矩阵分配接近的内存空间。因此，两者的峰值内存使用率在大规模数据下趋于一致，框架层面的内存管理差异被数据本身的规模效应所掩盖。
 
+#### Tokenizer：只包含map操作的情况
+![tokenizer-time](assets/tokenizer-time.png)
+
+机器学习预处理过程中有许多算子不需要全局集合信息，只需要对每个batch进行map操作就可完成，为了评估Ray和Spark在这些算子上的性能，我们以Tokenizer算子为例进行了实验。
+
+由于在Tokenizer操作中，不再需要全局聚合操作，因此Spark执行效率高的优势可以更显著的体现出来，无论数据集大小如何，Spark的算子效率均显著快于Ray，不受网络IO瓶颈影响。
+
+<!-- ![tokenizer-res](assets/tokenizer-res.png) -->
+
 #### 数据集列数的影响：MinMaxScaler和StandardScaler
 
 数据集规模除了数据量（行数）的变化外，数据列数（维度）也会发生变化，我们在Avazu_x1数据集上对处理不同维度的数据（2，8，16）下，Ray Data和 Spark Mllib中 MinMaxScaler与StandardScaler的性能进行了实验和比较。
